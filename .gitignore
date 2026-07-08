@@ -1,0 +1,93 @@
+#########################################
+# Backend
+#########################################
+
+backend/node_modules/
+backend/.env
+backend/logs/
+backend/*.log
+backend/coverage/
+backend/dist/
+backend/build/
+backend/.cache/
+
+#########################################
+# Frontend
+#########################################
+
+frontend/node_modules/
+frontend/.env
+frontend/.next/
+frontend/out/
+frontend/dist/
+frontend/build/
+frontend/.cache/
+frontend/.parcel-cache/
+frontend/.vercel/
+
+#########################################
+# IDE
+#########################################
+
+.vscode/
+.idea/
+
+#########################################
+# OS Files
+#########################################
+
+.DS_Store
+Thumbs.db
+
+#########################################
+# Logs
+#########################################
+
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+#########################################
+# Environment Files
+#########################################
+
+.env
+.env.*
+!.env.example
+
+#########################################
+# Coverage
+#########################################
+
+coverage/
+.nyc_output/
+
+#########################################
+# Cache
+#########################################
+
+.cache/
+.eslintcache
+
+#########################################
+# Temporary Files
+#########################################
+
+tmp/
+temp/
+
+#########################################
+# TypeScript
+#########################################
+
+*.tsbuildinfo
+
+
+# Google OAuth
+backend/credentials.json
+backend/token.json
+
+# Environment
+backend/.env
+frontend/.env

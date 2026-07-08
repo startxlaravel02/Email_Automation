@@ -1,0 +1,25 @@
+const path = require("path");
+const express = require("express");
+const cors = require("cors");
+
+const aiRoutes = require("./routes/ai.routes");
+const emailRoutes = require("./routes/email.routes");
+const dashboardRoutes = require("./routes/dashboard.routes");
+
+const app = express();
+
+app.use(cors());
+app.use(express.json());
+
+// Minimal dashboard UI (static HTML) served from backend/public.
+app.use(express.static(path.join(__dirname, "../public")));
+
+app.use("/api/ai", aiRoutes);
+app.use("/api/emails", emailRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+
+app.get("/health", (req, res) => {
+  res.json({ success: true, message: "AI Email Backend Running" });
+});
+
+module.exports = app;
