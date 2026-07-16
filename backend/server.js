@@ -5,6 +5,8 @@ const { startPolling } = require("./src/services/poller.service");
 const { testConnection } = require("./src/config/db");
 const { ensureSettingsTable } = require("./src/models/settings.model");
 const { ensurePausedThreadsTable } = require("./src/models/thread.model");
+const { startBounceScanning } = require("./src/services/bounceService");
+
 
 const PORT = process.env.PORT || 5000;
 
@@ -21,4 +23,7 @@ app.listen(PORT, () => {
     if (process.env.POLLING_ENABLED === "true") {
         startPolling();
     }
+
+    if (process.env.BOUNCE_SCAN_ENABLED !== "false") startBounceScanning();
+
 });

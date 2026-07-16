@@ -21,6 +21,9 @@ const { holdingReplyForAttachment } = require("../utils/templates");
 const { recordEmail, recordReply } = require("../models/email.model");
 const { isAiEnabled } = require("../models/settings.model");
 const { isThreadPaused } = require("../models/thread.model");
+const { sendTracked } = require("./trackingService");
+const { isSuppressed } = require("../models/tracking.model");
+
 
 const INTERVAL = Number(process.env.POLL_INTERVAL_MS || 10000);
 const MAX_RESULTS = Number(process.env.POLL_MAX_RESULTS || 10);
@@ -35,8 +38,9 @@ const DELIVERY = AUTO_SEND ? "sent" : "draft"; // for the DB enum
 
 // Deliver a reply — send it or save a draft, per AUTO_SEND.
 function deliver(payload) {
-  return AUTO_SEND ? sendReply(payload) : createDraftReply(payload);
+  return AUTO_SEND ? sendTracked(payload) : createDraftReply(payload);
 }
+
 
 // Persist what happened to MySQL. DB problems must never break email handling,
 // so failures are logged and swallowed.
@@ -52,11 +56,14 @@ async function logOutcome(email, { status, reason = null }, reply = null) {
       reason,
       emailDate: email.date,
     });
-    if (reply) await recordReply({ emailId, ...reply });
+    const replyId = reply ? await recordReply({ emailId, ...reply }) : null;
+    return { emailId, replyId };
   } catch (err) {
     console.error(`  ↳ db log failed: ${err.message}`);
+    return {};
   }
 }
+
 
 // Build the reply prompt: conversation context for ongoing threads, else the
 // fast single-message path.
@@ -93,6 +100,16 @@ async function processMessage(id, labels) {
     return;
   }
 
+  // Suppression list — never email an unsubscribed/bounced address (auto-suppress).
+const recipient = (email.from.match(/<([^>]+)>/)?.[1] || email.from).trim().toLowerCase();
+if (await isSuppressed(recipient)) {
+  console.log(`  ↳ suppressed — skip ${email.from}`);
+  await addLabel(id, labels.skipped);
+  await logOutcome(email, { status: "skipped", reason: "suppressed" });
+  return;
+}
+
+
   // Attachment triage: the model can't read files, so send/draft a holding
   // reply and flag the email "Action Required" for a human.
   if (hasRealAttachments(email)) {
@@ -101,19 +118,22 @@ async function processMessage(id, labels) {
       attachments: getRealAttachments(email),
     });
 
+    // Record the reply first so the tracked email can link back to it.
+    const { replyId } = await logOutcome(
+      email,
+      { status: "escalated", reason: "attachment" },
+      { body, deliveryMode: DELIVERY, usedContext: false, aiMs: null }
+    );
+
     await deliver({
       to: email.from,
       subject: email.subject,
       body,
       threadId: email.threadId,
       inReplyTo: email.messageId,
+      replyId,
     });
     await addLabel(id, labels.actionRequired);
-    await logOutcome(
-      email,
-      { status: "escalated", reason: "attachment" },
-      { body, deliveryMode: DELIVERY, usedContext: false, aiMs: null }
-    );
 
     console.log(
       `  ↳ attachment → holding reply ${MODE} + "${ACTION_LABEL}" — ${email.from}`
@@ -121,11 +141,19 @@ async function processMessage(id, labels) {
     return;
   }
 
+
   const { prompt, context } = await buildPromptFor(email);
 
   const aiStart = Date.now();
   const reply = await generateReply(prompt);
   const aiMs = Date.now() - aiStart;
+
+  // Record inbound + reply first so the tracked email links to the reply row.
+  const { replyId } = await logOutcome(
+    email,
+    { status: "replied" },
+    { body: reply, deliveryMode: DELIVERY, usedContext: context > 1, aiMs }
+  );
 
   await deliver({
     to: email.from,
@@ -133,13 +161,10 @@ async function processMessage(id, labels) {
     body: reply,
     threadId: email.threadId,
     inReplyTo: email.messageId,
+    replyId,
   });
   await addLabel(id, labels.processed);
-  await logOutcome(
-    email,
-    { status: "replied" },
-    { body: reply, deliveryMode: DELIVERY, usedContext: context > 1, aiMs }
-  );
+
 
   const totalSecs = ((Date.now() - startedAt) / 1000).toFixed(1);
   const ctx = context > 1 ? `${context} msgs` : "none";

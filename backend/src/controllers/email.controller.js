@@ -10,6 +10,9 @@ const {
   buildReplyPrompt,
   buildThreadReplyPrompt,
 } = require("../utils/promptBuilder");
+const { sendTracked } = require("../services/trackingService");
+
+
 
 // GET /api/emails  ->  list recent emails (lean, no html)
 const getEmails = async (req, res) => {
@@ -105,7 +108,7 @@ const sendReplyForEmail = async (req, res) => {
   try {
     const { email, reply } = await buildReplyFor(req.params.id);
 
-    const sent = await sendReply({
+    const sent = await sendTracked({
       to: email.from,
       subject: email.subject,
       body: reply,
