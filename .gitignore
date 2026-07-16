@@ -91,3 +91,11 @@ backend/token.json
 # Environment
 backend/.env
 frontend/.env
+
+
+data/uspto/*.xml
+data/uspto/*.zip
+
+# Geo IP databases (large; downloaded per-environment, never committed) — any location
+*.mmdb
+*.mmdb.gz
