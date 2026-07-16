@@ -1,7 +1,15 @@
 # AI Email Assistant — Project Context & Handoff
 
 > Paste this whole file into a new chat to resume with full context.
-> Last updated: 2026-07-08. Status: Phases 1–4, 5a (polling), attachment triage, thread context, knowledge base, MySQL logging + HTML dashboard + AI on/off toggle + per-conversation pause (MVP) complete and working.
+> Last updated: 2026-07-16. Status: Phases 1–4, 5a (polling), attachment triage, thread context, knowledge base, MySQL logging + HTML dashboard + AI on/off toggle + per-conversation pause (MVP), **and a full Email Tracking & Analytics system** — all complete and working.
+>
+> 📄 **The tracking/analytics work (opens, clicks, geo/city, bot-vs-human classification,
+> dashboards, exports, bounces, suppression) is documented in its own file:
+> [`TRACKING_AND_ANALYTICS.md`](./TRACKING_AND_ANALYTICS.md).** Sections below §5 predate it.
+>
+> Also now true (were open items before): a **git repo exists** (initial commit) with
+> secrets gitignored; the database is **MySQL** (not MongoDB); the **USPTO lead-gen
+> pipeline is paused** (see the tracking doc §13).
 
 ---
 
@@ -23,8 +31,9 @@ working code, don't over-engineer.
 - **Backend:** Node.js, Express **5.x**, axios, cors, dotenv, nodemon
 - **AI:** Ollama at `http://localhost:11434`, model `llama3.2:3b` (`qwen3:4b` installed as alternative)
 - **Email:** Gmail API via `googleapis` + `@google-cloud/local-auth`; OAuth2 **Desktop** credentials; scope `gmail.modify`
-- **Database:** none yet (MongoDB planned)
-- **Frontend:** none yet (React dashboard planned)
+- **Database:** **MySQL** via `mysql2` pool — DB `ai_email_assistant`
+- **Frontend:** minimal static HTML dashboards in `backend/public/` (React still planned)
+- **Tracking libs:** `ua-parser-js`, `geoip-lite` + `maxmind` (DB-IP City .mmdb), `exceljs`, `pdfkit`
 
 ---
 
@@ -241,11 +250,10 @@ if a new route 404s, do a manual stop/start).
 
 ## 9. Known issues / deferred items (READ before next phase)
 
-1. **🔴 Secrets not protected.** `backend/credentials.json` (client secret) and
-   `backend/token.json` (live mailbox OAuth token) are NOT gitignored and there is
-   **no git repo yet**. Must add `.gitignore` (covering `credentials.json`,
-   `token.json`, `.env`, `node_modules/`) **before the first `git init`/commit**.
-   (User deferred git for now — do this before any versioning.)
+1. **✅ Secrets protected (resolved).** A git repo now exists (initial commit) and
+   `.gitignore` covers `credentials.json`, `token.json`, `.env`, `node_modules/`, and
+   the geo `.mmdb`. (Historical note: these were unprotected before 2026-07.) Still
+   verify no secret was committed in the very first commit before pushing anywhere public.
 2. **OAuth on a server.** `@google-cloud/local-auth` opens a browser — won't work
    on a headless production server. Need a pre-generated token (as a secret) or a
    service-account/domain-delegation model. Blocker for Phase 5/6 deployment.
