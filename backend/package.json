@@ -16,9 +16,16 @@
     "axios": "^1.18.1",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
     "express": "^5.2.1",
+    "fast-xml-parser": "^5.10.0",
+    "geoip-lite": "^2.0.3",
     "googleapis": "^173.0.0",
+    "maxmind": "^5.0.6",
     "mysql2": "^3.22.6",
-    "nodemon": "^3.1.14"
+    "nodemon": "^3.1.14",
+    "pdfkit": "^0.19.1",
+    "saxes": "^6.0.0",
+    "ua-parser-js": "^2.0.10"
   }
 }
