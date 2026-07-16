@@ -25,4 +25,46 @@ const buildRawReply = ({ to, subject = "", body = "", inReplyTo }) => {
   return Buffer.from(message, "utf8").toString("base64url");
 };
 
-module.exports = { buildRawReply };
+// base64-encode a string, wrapped at 76 cols (RFC 2045) — safe for unicode + long HTML.
+const _b64 = (s) =>
+  (Buffer.from(String(s), "utf8").toString("base64").match(/.{1,76}/g) || []).join("\r\n");
+
+// A multipart/alternative reply: text/plain fallback + text/html (tracked) part.
+// Sets Message-ID (for later bounce matching) and keeps threading headers.
+const buildRawMultipartReply = ({ to, subject = "", text = "", html = "", inReplyTo, messageId }) => {
+  const replySubject = /^re:/i.test(String(subject).trim()) ? subject : `Re: ${subject}`;
+  const boundary = "alt_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+
+  const headers = [
+    `To: ${to}`,
+    `Subject: ${replySubject}`,
+    "MIME-Version: 1.0",
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+  ];
+  if (messageId) headers.push(`Message-ID: ${messageId}`);
+  if (inReplyTo) {
+    headers.push(`In-Reply-To: ${inReplyTo}`);
+    headers.push(`References: ${inReplyTo}`);
+  }
+
+  const body = [
+    `--${boundary}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    "Content-Transfer-Encoding: base64",
+    "",
+    _b64(text),
+    `--${boundary}`,
+    'Content-Type: text/html; charset="UTF-8"',
+    "Content-Transfer-Encoding: base64",
+    "",
+    _b64(html),
+    `--${boundary}--`,
+    "",
+  ].join("\r\n");
+
+  const message = headers.join("\r\n") + "\r\n\r\n" + body;
+  return Buffer.from(message, "utf8").toString("base64url");
+};
+
+
+module.exports = { buildRawReply , buildRawMultipartReply };

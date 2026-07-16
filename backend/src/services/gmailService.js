@@ -180,6 +180,33 @@ async function addLabel(messageId, labelId) {
   });
 }
 
+
+// Send a pre-built raw MIME message (used by the tracking service for multipart HTML).
+async function sendRawMessage({ raw, threadId }) {
+  const gmail = await getGmailClient();
+  const res = await gmail.users.messages.send({
+    userId: "me",
+    requestBody: threadId ? { threadId, raw } : { raw },
+  });
+  return res.data; // { id, threadId, labelIds }
+}
+
+
+// Generic Gmail search (used by the bounce scanner).
+async function searchMessages(query, maxResults = 20) {
+  const gmail = await getGmailClient();
+  const res = await gmail.users.messages.list({ userId: "me", q: query, maxResults });
+  return res.data.messages || [];
+}
+
+// Fetch the full raw MIME of a message (so we can scan a bounce's headers/body).
+async function getRawMessage(id) {
+  const gmail = await getGmailClient();
+  const res = await gmail.users.messages.get({ userId: "me", id, format: "raw" });
+  return Buffer.from(res.data.raw, "base64url").toString("utf8");
+}
+
+
 module.exports = {
   listEmails,
   getEmail,
@@ -189,4 +216,7 @@ module.exports = {
   listUnprocessedMessages,
   getOrCreateLabelId,
   addLabel,
+  sendRawMessage,
+  searchMessages,
+  getRawMessage
 };
