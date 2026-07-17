@@ -7,6 +7,8 @@ const emailRoutes = require("./routes/email.routes");
 const dashboardRoutes = require("./routes/dashboard.routes");
 const trackRoutes = require("./routes/track.routes");
 const analyticsRoutes = require("./routes/analytics.routes");
+const engagementRoutes = require("./routes/engagement.routes");
+const { requireApiKey } = require("./middleware/auth");
 
 
 
@@ -26,6 +28,9 @@ app.use("/api/emails", emailRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/track", trackRoutes);
 app.use("/api/analytics", analyticsRoutes);
+
+// Open Intelligence engagement APIs — behind API-key auth (engagement data is private).
+app.use("/api/engagement", requireApiKey, engagementRoutes);
 
 
 
