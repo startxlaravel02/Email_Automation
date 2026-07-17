@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "notes": "Seed ruleset v1 — rules-based, no ML. Canonical source of the engagement engine's behaviour. All numeric values here are INTERNAL and must never be exposed via API or UI (see docs/OPEN_INTELLIGENCE_ENGINE.md §16.1).",
+
+  "trustLevels": ["very_low", "low", "medium", "high", "verified"],
+
+  "sourceTrust": {
+    "human_action":     "verified",
+    "direct_client":    "high",
+    "gmail_proxy":      "low",
+    "microsoft_proxy":  "low",
+    "yahoo_proxy":      "low",
+    "apple_mpp":        "very_low",
+    "unknown_proxy":    "very_low",
+    "bot":              "very_low"
+  },
+
+  "trustWeight": {
+    "very_low": 0.05,
+    "low":      0.50,
+    "medium":   0.70,
+    "high":     0.90,
+    "verified": 1.00
+  },
+
+  "humanAction": {
+    "types": ["click", "unsubscribe", "reply"],
+    "excludeBotSource": true
+  },
+
+  "signalWeights": {
+    "openPattern":         0.30,
+    "timing":              0.20,
+    "clientDirectness":    0.25,
+    "ipReputation":        0.10,
+    "behaviorConsistency": 0.15
+  },
+
+  "timing": {
+    "prefetchSeconds":         10,
+    "humanPlausibleMinSeconds": 20,
+    "humanPlausibleMaxHours":   168
+  },
+
+  "bands": {
+    "lowMax":      0.34,
+    "mediumMax":   0.64,
+    "softCeiling": 0.85
+  },
+
+  "priorNudge": {
+    "min": 0.90,
+    "max": 1.15
+  },
+
+  "behaviorConsistency": {
+    "minObservations":              3,
+    "timeOfDayToleranceMinutes":    45,
+    "machineIntervalVarianceSeconds": 5,
+    "humanJitterMinSeconds":        60
+  },
+
+  "campaign": {
+    "windowSeconds":                    3,
+    "machineDominatedPctWithinWindow":  60,
+    "humanDistributedMaxPctWithinWindow": 20,
+    "minEmailsForVerdict":              25
+  },
+
+  "overrides": [
+    { "if": "has_human_action", "then": "verified" },
+    { "if": "only_apple_mpp",   "then": "cap:low" },
+    { "if": "all_bot",          "then": "no_climb" }
+  ],
+
+  "stageMap": {
+    "none":     "delivered",
+    "low":      "open_signal",
+    "medium":   "likely_engaged",
+    "high":     "likely_engaged",
+    "verified": "verified_human"
+  }
+}
