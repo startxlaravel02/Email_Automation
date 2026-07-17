@@ -1,5 +1,6 @@
 // Turns a plain-text email body into a TRACKED HTML email:
-//   - rewrites every http(s) link through /track/click/{token}/{linkId}
+//   - rewrites every http(s) link through /track/click/{token}/{linkId}, using
+//     DESCRIPTIVE anchor text (not the raw URL) to avoid phishing "link mismatch" warnings
 //   - appends an unsubscribe + physical-address footer (CAN-SPAM)
 //   - injects the invisible 1x1 open pixel
 // Pure function (no DB / no network) so it's easy to unit-test.
@@ -13,6 +14,24 @@ const COMPANY_ADDRESS = process.env.COMPANY_ADDRESS || "[address not set]";
 
 const escapeHtml = (s) =>
   String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// A human, NON-URL label for a tracked link. Using descriptive text (not the raw
+// URL) as the anchor text avoids the "link text says X but goes to Y" mismatch that
+// Thunderbird/Outlook flag as phishing — which makes recipients bypass the tracking
+// redirect. Derived from the URL's last path segment; bare domains fall back to the
+// company name. (The full destination is still stored server-side in tracked_links.)
+function linkLabel(url) {
+  try {
+    const seg = new URL(url).pathname.split("/").filter(Boolean).pop();
+    if (seg) {
+      const words = decodeURIComponent(seg).replace(/\.[a-z0-9]+$/i, "").replace(/[-_]+/g, " ").trim();
+      if (words) return words;
+    }
+  } catch (_) {
+    /* not a parseable URL — fall through to the generic label */
+  }
+  return `${COMPANY_NAME} website`;
+}
 
 function buildTrackedHtml(rawText, token) {
   const text = String(rawText || "");
@@ -40,10 +59,11 @@ function buildTrackedHtml(rawText, token) {
   // 2) Escape the rest, turn newlines into <br>.
   let bodyHtml = escapeHtml(withPlaceholders).replace(/\r?\n/g, "<br>\n");
 
-  // 3) Swap placeholders for tracked anchors.
+  // 3) Swap placeholders for tracked anchors. Anchor text is a DESCRIPTIVE label,
+  //    not the raw URL, so clients don't flag a text-vs-destination "link mismatch".
   for (const p of placeholders) {
     const href = `${BASE}/track/click/${token}/${p.linkId}`;
-    bodyHtml = bodyHtml.replace(p.ph, `<a href="${href}">${escapeHtml(p.url)}</a>`);
+    bodyHtml = bodyHtml.replace(p.ph, `<a href="${href}">${escapeHtml(linkLabel(p.url))}</a>`);
   }
 
   const footer =
