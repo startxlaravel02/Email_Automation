@@ -1,6 +1,16 @@
 const { pool } = require("../config/db");
 const { enrichClient } = require("../utils/enrichClient");
 const { classifyEvent } = require("../utils/botFilter");
+const { enqueueJob } = require("./engagement.model");
+
+// Fire-and-forget: queue an engagement re-evaluation for this email. Engagement
+// scoring is async and must NEVER block or break the tracking hot path — so this
+// is not awaited and its errors are swallowed (logged only).
+function enqueueEngagement(trackedEmailId) {
+  Promise.resolve()
+    .then(() => enqueueJob(trackedEmailId))
+    .catch((err) => console.error(`[track] engagement enqueue failed: ${err.message}`));
+}
 
 
 // ─── Writes at send time ─────────────────────────────────────────────
@@ -74,6 +84,8 @@ async function recordOpen(token, client = {}) {
               last_opened_at = NOW()
         WHERE id = ?`, [id]);
   }
+
+  enqueueEngagement(id);
   return true;
 }
 
@@ -106,6 +118,8 @@ async function recordClick(token, linkId, client = {}) {
               last_clicked_at = NOW()
         WHERE id = ?`, [id]);
   }
+
+  enqueueEngagement(id);
   return url;
 }
 
@@ -128,6 +142,8 @@ async function recordUnsubscribe(token, client = {}) {
   await pool.query(
     `INSERT IGNORE INTO suppressed_recipients (email, reason) VALUES (?, 'unsubscribed')`,
     [recipient_email]);
+
+  enqueueEngagement(id);
   return recipient_email;
 }
 

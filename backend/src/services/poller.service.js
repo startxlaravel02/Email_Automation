@@ -23,6 +23,7 @@ const { isAiEnabled } = require("../models/settings.model");
 const { isThreadPaused } = require("../models/thread.model");
 const { sendTracked } = require("./trackingService");
 const { isSuppressed } = require("../models/tracking.model");
+const { enqueueForThread } = require("../engagement/engagementService");
 
 
 const INTERVAL = Number(process.env.POLL_INTERVAL_MS || 10000);
@@ -203,6 +204,9 @@ async function pollOnce() {
         continue;
       }
       await processMessage(msg.id, labels);
+      // A reply on a thread we've tracked is a human action — re-evaluate engagement
+      // (detectReply → VERIFIED) even if the recipient never opened or clicked.
+      enqueueForThread(msg.threadId).catch((e) => console.error(`  ↳ engagement enqueue failed: ${e.message}`));
     } catch (err) {
       console.error(`  ↳ error on ${msg.id}: ${err.message}`);
     }
