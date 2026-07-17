@@ -12,13 +12,18 @@ const recipientProfileService = require("./recipientProfileService");
 // AFTER we sent implies the recipient replied. (Replies aren't raw tracking events;
 // they come back to our inbox and are recorded in `emails` by the poller.)
 async function detectReply(te) {
-  if (!te.reply_id || !te.sent_at) return false;
+  if (!te.reply_id) return false;
+  // A recipient reply = a LATER inbound message in the same thread than the one
+  // that triggered our tracked reply. We use emails.id (arrival order) — NOT
+  // email_date, which is stored as an RFC-2822 STRING and cannot be compared as a
+  // date (that string-vs-datetime comparison was the bug). Only inbound messages
+  // are stored in `emails`, so a higher id in the same thread is a real reply.
   const [rows] = await pool.query(
     `SELECT 1 FROM replies r
        JOIN emails e1 ON e1.id = r.email_id
-       JOIN emails e2 ON e2.thread_id = e1.thread_id AND e2.id <> e1.id
-      WHERE r.id = ? AND e2.email_date > ? LIMIT 1`,
-    [te.reply_id, te.sent_at]
+       JOIN emails e2 ON e2.thread_id = e1.thread_id AND e2.id > e1.id
+      WHERE r.id = ? LIMIT 1`,
+    [te.reply_id]
   );
   return rows.length > 0;
 }
