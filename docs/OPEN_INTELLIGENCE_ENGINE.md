@@ -534,3 +534,33 @@ src/engagement/
 migrations/004_engagement_v2.sql   # NEW
 ```
 ```
+
+---
+
+## 17. Tracking runs even when the AI is off (decoupled from replies)
+
+Engagement **tracking** (recording inbound emails, detecting **replies**, plus opens/clicks)
+is decoupled from the AI **reply**:
+
+- The poller records + triggers engagement for **every** inbound email, regardless of the
+  global AI toggle or a per-thread pause — a recipient reply is a human signal we always capture.
+- The AI **reply** only fires when the AI is **on** AND the thread is **not paused**.
+- Emails we don't reply to are recorded but left **UNLABELED ("pending")**, so they're
+  **caught up automatically** when the AI is turned back on (the poller re-sees the unlabeled
+  email and replies). Each pending email is tracked **once** (guarded by `emailExists`) — no
+  re-work loop while the AI is off.
+
+**Result:** replies reach `verified_human` even while the AI is off or a thread is paused, and
+verification is always driven by the recipient's reply — never by our AI's response.
+
+**Phase A (done):** `poller.service.js` (pollOnce decoupled; `processMessage` now takes the
+email object), `email.model.js` (`emailExists`). No schema change.
+
+**Phase B/C (done):** turning the AI **on** in the dashboard pops up a choice when emails
+arrived while it was off — *"N emails arrived while the AI was off — reply to them (catch-up)
+or skip them?"*
+- **Reply (catch-up):** just enable the AI; the poller replies to the pending (unlabeled) emails.
+- **Skip:** `POST /api/dashboard/pending/skip` labels them `AI-Skipped` (handled, no reply), then enable.
+- **Cancel:** leaves the AI off.
+Endpoints: `GET /api/dashboard/pending` (count of waiting emails), `POST /api/dashboard/pending/skip`.
+Files: `dashboard.controller.js` + `dashboard.routes.js` (endpoints), `public/index.html` (popup modal).

@@ -18,7 +18,7 @@ const {
   getRealAttachments,
 } = require("../utils/attachments");
 const { holdingReplyForAttachment } = require("../utils/templates");
-const { recordEmail, recordReply } = require("../models/email.model");
+const { recordEmail, recordReply, emailExists } = require("../models/email.model");
 const { isAiEnabled } = require("../models/settings.model");
 const { isThreadPaused } = require("../models/thread.model");
 const { sendTracked } = require("./trackingService");
@@ -89,9 +89,10 @@ async function buildPromptFor(email) {
 }
 
 // Handle one email end-to-end: filter -> triage -> reply -> label -> record.
-async function processMessage(id, labels) {
+// Receives the already-fetched email object (the poller fetches it once).
+async function processMessage(email, labels) {
   const startedAt = Date.now();
-  const email = await getEmail(id);
+  const id = email.id;
 
   const decision = shouldAutoReply(email);
   if (!decision.ok) {
@@ -175,10 +176,13 @@ if (await isSuppressed(recipient)) {
 }
 
 // One polling cycle.
+//
+// Engagement TRACKING (recording the inbound + reply detection) runs for EVERY new
+// email regardless of the global AI toggle or a per-thread pause — a recipient reply
+// is a human signal we always want. The AI *reply* only fires when the AI is on AND
+// the thread isn't paused. Emails we don't reply to are recorded but left UNLABELED
+// ("pending"), so they get caught up automatically when the AI is turned back on.
 async function pollOnce() {
-  // Global kill switch — the dashboard toggle can pause the AI without a restart.
-  if (!(await isAiEnabled())) return;
-
   const labels = {
     processed: await getOrCreateLabelId(LABEL),
     skipped: await getOrCreateLabelId(SKIPPED_LABEL),
@@ -189,24 +193,30 @@ async function pollOnce() {
     [LABEL, SKIPPED_LABEL, ACTION_LABEL],
     MAX_RESULTS
   );
-
   if (messages.length === 0) return;
 
+  const aiEnabled = await isAiEnabled();
   const cycleStart = Date.now();
-  console.log(`[poller] ${messages.length} new email(s) to process`);
+  console.log(`[poller] ${messages.length} new email(s)${aiEnabled ? "" : " — AI OFF (tracking only)"}`);
 
   for (const msg of messages) {
     try {
-      // Per-conversation pause (set from the dashboard) — AI stays out of it,
-      // for this message and any future replies in the thread.
-      if (await isThreadPaused(msg.threadId)) {
-        console.log(`  ↳ paused thread — skip ${msg.id}`);
-        continue;
+      const paused = await isThreadPaused(msg.threadId);
+
+      if (aiEnabled && !paused) {
+        // AI on + thread active → full handling (records inbound, replies, labels).
+        const email = await getEmail(msg.id);
+        await processMessage(email, labels);
+        enqueueForThread(msg.threadId).catch((e) => console.error(`  ↳ engagement enqueue failed: ${e.message}`));
+      } else if (!(await emailExists(msg.id))) {
+        // AI off or thread paused → TRACK once (record inbound + trigger reply
+        // detection), then leave the email UNLABELED so it's caught up when AI resumes.
+        const email = await getEmail(msg.id);
+        await logOutcome(email, { status: "skipped", reason: aiEnabled ? "paused" : "ai_off" });
+        enqueueForThread(msg.threadId).catch((e) => console.error(`  ↳ engagement enqueue failed: ${e.message}`));
+        console.log(`  ↳ tracked only (${aiEnabled ? "paused thread" : "AI off"}) — ${email.from}`);
       }
-      await processMessage(msg.id, labels);
-      // A reply on a thread we've tracked is a human action — re-evaluate engagement
-      // (detectReply → VERIFIED) even if the recipient never opened or clicked.
-      enqueueForThread(msg.threadId).catch((e) => console.error(`  ↳ engagement enqueue failed: ${e.message}`));
+      // else: AI off/paused AND already tracked earlier → nothing to do this cycle.
     } catch (err) {
       console.error(`  ↳ error on ${msg.id}: ${err.message}`);
     }

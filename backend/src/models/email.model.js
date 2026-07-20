@@ -78,4 +78,11 @@ async function getStats() {
   return { total, byStatus };
 }
 
-module.exports = { recordEmail, recordReply, getRecentEmails, getStats };
+// True if an inbound email (by Gmail id) has already been recorded. Used by the
+// poller to track a pending email only once while the AI is off (no re-work loop).
+async function emailExists(gmailId) {
+  const [rows] = await pool.query(`SELECT 1 FROM emails WHERE gmail_id = ? LIMIT 1`, [gmailId]);
+  return rows.length > 0;
+}
+
+module.exports = { recordEmail, recordReply, getRecentEmails, getStats, emailExists };

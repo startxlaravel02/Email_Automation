@@ -38,6 +38,14 @@
       .toggle.on { background: #123a2a; color: #5be0a0; border-color: #1c5c40; }
       .toggle.off { background: #3a1414; color: #ff6b6b; border-color: #5c1c1c; }
       .toggle:disabled { opacity: .6; cursor: default; }
+      .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.65); display: none; align-items: center; justify-content: center; z-index: 1000; }
+      .modal-box { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 22px; max-width: 440px; width: 90%; }
+      .modal-box h3 { margin: 0 0 8px; font-size: 16px; }
+      .modal-box p { color: #9aa4ad; margin: 0 0 18px; line-height: 1.5; font-size: 14px; }
+      .modal-actions { display: flex; flex-direction: column; gap: 8px; }
+      .modal-actions button { padding: 10px 14px; border-radius: 8px; font-weight: 600; font-size: 13px; cursor: pointer; border: 1px solid var(--line); background: var(--card); color: var(--txt); text-align: left; }
+      .modal-actions .m-reply { background: #123a2a; color: #5be0a0; border-color: #1c5c40; }
+      .modal-actions .m-skip { background: #3a2e14; color: #e0c05b; border-color: #5c4a1c; }
       .tbtn { border: 1px solid var(--line); background: var(--card); color: var(--txt); padding: 5px 12px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
       .tbtn.paused { background: #3a1414; color: #ff6b6b; border-color: #5c1c1c; }
     </style>
@@ -159,6 +167,32 @@
       async function toggleAi() {
         const next = !aiEnabled;
         const b = document.getElementById("toggle");
+
+        // Turning ON: if emails piled up while the AI was off, ask what to do with them.
+        if (next) {
+          let pending = 0;
+          try {
+            const p = await fetch("/api/dashboard/pending").then((r) => r.json());
+            pending = p.count || 0;
+          } catch (e) {}
+          if (pending > 0) {
+            const choice = await aiOnChoice(pending);
+            if (choice === "cancel") return; // leave the AI off
+            if (choice === "skip") {
+              b.disabled = true;
+              try {
+                await fetch("/api/dashboard/pending/skip", { method: "POST" });
+              } catch (e) {
+                alert("Failed to skip pending: " + e.message);
+                b.disabled = false;
+                return;
+              }
+              b.disabled = false;
+            }
+            // "reply" (catch-up) → nothing extra; the poller replies to them once AI is on.
+          }
+        }
+
         b.disabled = true;
         try {
           const s = await fetch("/api/dashboard/settings", {
@@ -171,6 +205,28 @@
           alert("Failed to update: " + e.message);
         }
         b.disabled = false;
+      }
+
+      // Popup asking how to handle emails that arrived while the AI was off.
+      // Resolves to "reply" (catch up), "skip", or "cancel".
+      function aiOnChoice(n) {
+        return new Promise((resolve) => {
+          const modal = document.getElementById("ai-modal");
+          document.getElementById("ai-modal-text").textContent =
+            n + " email" + (n === 1 ? "" : "s") + " arrived while the AI was off. What should happen when you turn it on?";
+          modal.style.display = "flex";
+          const done = (c) => {
+            modal.style.display = "none";
+            modal.removeEventListener("click", onClick);
+            resolve(c);
+          };
+          const onClick = (e) => {
+            const choice = e.target.getAttribute("data-choice");
+            if (choice) return done(choice);
+            if (e.target === modal) return done("cancel"); // clicked the backdrop
+          };
+          modal.addEventListener("click", onClick);
+        });
       }
 
       // --- per-conversation AI pause ---
@@ -191,5 +247,17 @@
       loadSettings();
       setInterval(load, 15000);
     </script>
+
+    <div id="ai-modal" class="modal-overlay">
+      <div class="modal-box">
+        <h3>Turn AI Auto-Reply ON</h3>
+        <p id="ai-modal-text"></p>
+        <div class="modal-actions">
+          <button class="m-reply" data-choice="reply">Reply to them (catch up)</button>
+          <button class="m-skip" data-choice="skip">Skip them (mark handled, no reply)</button>
+          <button data-choice="cancel">Cancel</button>
+        </div>
+      </div>
+    </div>
   </body>
 </html>
