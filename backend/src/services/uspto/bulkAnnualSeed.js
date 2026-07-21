@@ -27,6 +27,7 @@
  * entire run crashing.
  */
 
+require('dotenv').config(); // self-contained: works when spawned as a child process
 const path = require('path');
 const { parseBulkFile } = require('../../utils/uspto/bulkXmlParser');
 const trademarkLeadModel = require('../../models/trademarkLead.model');
@@ -85,7 +86,9 @@ async function seedFromFile(filePath) {
   const seconds = ((Date.now() - startedAt) / 1000).toFixed(1);
   console.log('[uspto-seed] done.');
   console.log(`  case-files seen:      ${stats.total}`);
-  console.log(`  skipped (dead marks): ${stats.skippedDead}`);
+  console.log(`  of which dead:        ${stats.deadCount}`);
+  console.log(`  of which pending:     ${stats.pendingCount}`);
+  console.log(`  emitted (all kept):   ${stats.emitted}`);
   console.log(`  upserted into MySQL:  ${totalUpserted}`);
   console.log(`  failed batches:       ${failedBatches}${failedBatches ? ' (see errors above — check column widths / bad data)' : ''}`);
   console.log(`  time:                 ${seconds}s`);

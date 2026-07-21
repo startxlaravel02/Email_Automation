@@ -1,30 +1,61 @@
 /**
  * src/services/uspto/bulkProcessDownloaded.js
  *
- * PHASE B: process-only. Scans a folder of already-downloaded zip parts
- * (from bulkDownloadOnly.js, e.g. D:\uspto-data) and, for each one not
- * yet processed: extracts it, seeds it into trademark_leads, deletes the
- * extracted XML (keeps the original zip untouched, in case you want to
- * re-process later), and records progress so re-runs skip completed ones.
+ * INTERLEAVED process-only. Scans a folder of downloaded zip parts and, for
+ * each one not yet processed: extracts it, seeds it into trademark_leads,
+ * deletes the extracted XML, and (on success) deletes the source zip — so disk
+ * usage stays FLAT (only one ~2-3GB XML on disk at any moment). Progress is
+ * logged so re-runs skip completed parts.
  *
- * Run:
- *   set USPTO_DOWNLOAD_DIR=D:\uspto-data
+ * WHY yauzl (not adm-zip): the extracted XMLs are 2-3GB, which means adm-zip
+ * (which loads the whole file into a ~2GB-capped Node Buffer) throws
+ * "length out of range" on most parts. yauzl streams each entry straight to
+ * disk, so size doesn't matter. We reuse the exact same extractXml() the
+ * extract-only script uses.
+ *
+ * Corrupt/truncated zips (e.g. a bad download) fail cleanly: they are recorded
+ * as failed and KEPT (never deleted) so you can re-download them.
+ *
+ * Run (PowerShell):
+ *   $env:USPTO_DOWNLOAD_DIR="E:\uspto-data\bulk-parts"
  *   node src/services/uspto/bulkProcessDownloaded.js
+ *
+ * Env:
+ *   USPTO_DOWNLOAD_DIR   folder of .zip parts       (default E:\uspto-data\bulk-parts)
+ *   USPTO_KEEP_ZIP=true  keep the .zip after seeding (default: delete it on success)
  */
 
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
-const AdmZip = require('adm-zip');
-const { seedFromFile } = require('./bulkAnnualSeed');
+const { spawnSync } = require('child_process');
+const { extractXml } = require('./bulkExtractOnly');
 
-const DOWNLOAD_DIR = process.env.USPTO_DOWNLOAD_DIR || path.resolve(__dirname, '../../../data/uspto/bulk-parts');
-// Extract temp folder now lives INSIDE the download folder itself (same drive
-// as the zips), instead of a fixed path under the project folder. This matters
-// a lot on low-C:-space setups — a single extracted XML can be 1GB+ even from
-// a ~250MB zip, since XML text compresses 4-6x.
+// Seed each part in its OWN child process (not in-process). WHY: seedFromFile
+// buffers a whole file's parsed records in memory; running 60+ parts in one
+// long-lived process let that heap accumulate until Node aborted with
+// "JavaScript heap out of memory" (~4GB) partway through. A fresh child per
+// part gets a clean heap that is fully reclaimed the instant it exits, so
+// memory stays flat no matter how many parts we process. --max-old-space-size
+// gives a single large part generous headroom.
+const SEED_SCRIPT = path.join(__dirname, 'bulkAnnualSeed.js');
+const CHILD_MAX_OLD_SPACE_MB = process.env.USPTO_CHILD_HEAP_MB || '6144';
+
+function seedInChild(xmlPath) {
+  const res = spawnSync(
+    process.execPath,
+    [`--max-old-space-size=${CHILD_MAX_OLD_SPACE_MB}`, SEED_SCRIPT, xmlPath],
+    { stdio: 'inherit' } // child logs (incl. per-batch progress) flow to our output
+  );
+  if (res.error) throw res.error;
+  return res.status; // 0 = success; non-zero = the seed threw / crashed
+}
+
+const DOWNLOAD_DIR = process.env.USPTO_DOWNLOAD_DIR || 'E:\\uspto-data\\bulk-parts';
+// Temp extract folder on the SAME drive as the zips (keeps everything off C:).
 const EXTRACT_DIR = path.join(DOWNLOAD_DIR, '_extract-tmp');
 const PROCESSED_LOG_FILE = path.resolve(__dirname, '../../../data/uspto/processed-parts.json');
+const DELETE_ZIP = process.env.USPTO_KEEP_ZIP !== 'true';
 
 function loadLog() {
   if (fs.existsSync(PROCESSED_LOG_FILE)) {
@@ -38,14 +69,9 @@ function saveLog(log) {
   fs.writeFileSync(PROCESSED_LOG_FILE, JSON.stringify(log, null, 2));
 }
 
-function extractZip(zipPath, outDir) {
-  fs.rmSync(outDir, { recursive: true, force: true });
-  fs.mkdirSync(outDir, { recursive: true });
-  const zip = new AdmZip(zipPath);
-  zip.extractAllTo(outDir, true);
-  const entries = fs.readdirSync(outDir).filter((f) => f.toLowerCase().endsWith('.xml'));
-  if (!entries.length) throw new Error(`No .xml found inside ${zipPath}`);
-  return path.join(outDir, entries[0]);
+function cleanExtractDir() {
+  fs.rmSync(EXTRACT_DIR, { recursive: true, force: true });
+  fs.mkdirSync(EXTRACT_DIR, { recursive: true });
 }
 
 async function run() {
@@ -56,12 +82,13 @@ async function run() {
 
   const zipFiles = fs.readdirSync(DOWNLOAD_DIR)
     .filter((f) => f.toLowerCase().endsWith('.zip'))
-    .sort(); // process in a predictable order
+    .sort();
 
   console.log(`[process-downloaded] folder: ${DOWNLOAD_DIR}`);
-  console.log(`[process-downloaded] found ${zipFiles.length} zip file(s)\n`);
+  console.log(`[process-downloaded] found ${zipFiles.length} zip file(s) — delete-zip-on-success: ${DELETE_ZIP}\n`);
 
   const log = loadLog();
+  let done = 0;
 
   for (const fileName of zipFiles) {
     if (log.completed.includes(fileName)) {
@@ -71,24 +98,22 @@ async function run() {
 
     const zipPath = path.join(DOWNLOAD_DIR, fileName);
     try {
-      console.log(`[process-downloaded] extracting ${fileName}...`);
-      const xmlPath = extractZip(zipPath, EXTRACT_DIR);
+      cleanExtractDir();
 
-      console.log(`[process-downloaded] seeding from ${fileName}...`);
-      const result = await seedFromFile(xmlPath);
+      console.log(`[process-downloaded] === ${fileName} === extracting...`);
+      const xmlPath = await extractXml(zipPath, EXTRACT_DIR);
 
-      fs.rmSync(EXTRACT_DIR, { recursive: true, force: true }); // free disk, keep the .zip itself as an archive
+      console.log(`[process-downloaded] seeding ${fileName} (child process)...`);
+      const status = seedInChild(xmlPath);
 
-      if (result.failedBatches > 0) {
-        // seedFromFile no longer crashes on a bad batch — it skips that
-        // batch and keeps going. That's good for progress, but it means
-        // this zip is only PARTIALLY seeded. Don't mark it completed, so
-        // a future re-run (after fixing whatever caused the failure, e.g.
-        // a column width) will retry it. Already-seeded rows are safe —
-        // re-processing just re-upserts them via ON DUPLICATE KEY UPDATE.
+      // Free the big XML immediately, regardless of outcome.
+      fs.rmSync(xmlPath, { force: true });
+
+      if (status !== 0) {
+        // Seed child crashed (e.g. OOM on a pathological part) — keep the zip
+        // and record it so a re-run retries rather than silently losing data.
         console.warn(
-          `[process-downloaded] PARTIAL: ${fileName} had ${result.failedBatches} failed batch(es) — ` +
-          `NOT marked complete, will retry on next run.\n`
+          `[process-downloaded] SEED FAILED (exit ${status}): ${fileName} — zip KEPT, will retry on next run.\n`
         );
         if (!log.failed.includes(fileName)) log.failed.push(fileName);
         saveLog(log);
@@ -98,20 +123,30 @@ async function run() {
       log.completed.push(fileName);
       log.failed = log.failed.filter((f) => f !== fileName);
       saveLog(log);
-      console.log(`[process-downloaded] DONE: ${fileName}\n`);
+      done++;
+
+      if (DELETE_ZIP) {
+        fs.rmSync(zipPath, { force: true });
+        console.log(`[process-downloaded] DONE + deleted zip: ${fileName}\n`);
+      } else {
+        console.log(`[process-downloaded] DONE: ${fileName}\n`);
+      }
     } catch (err) {
-      console.error(`[process-downloaded] FAILED: ${fileName} — ${err.message}\n`);
+      // Corrupt/truncated zip or extract/seed error — keep the zip, record it.
+      console.error(`[process-downloaded] FAILED: ${fileName} — ${err.message} (zip kept — re-download it)\n`);
       if (!log.failed.includes(fileName)) log.failed.push(fileName);
       saveLog(log);
-      fs.rmSync(EXTRACT_DIR, { recursive: true, force: true });
-      // Continue with the next zip rather than aborting the whole run.
     }
   }
 
-  console.log('\n[process-downloaded] run complete.');
-  console.log(`  completed: ${log.completed.length}`);
-  console.log(`  failed: ${log.failed.length}`);
-  if (log.failed.length) console.log('  failed:', log.failed.join(', '));
+  // Best-effort cleanup of the temp dir.
+  try { fs.rmSync(EXTRACT_DIR, { recursive: true, force: true }); } catch (_) {}
+
+  console.log('[process-downloaded] run complete.');
+  console.log(`  newly completed this run: ${done}`);
+  console.log(`  total completed:          ${log.completed.length}`);
+  console.log(`  failed/kept:              ${log.failed.length}`);
+  if (log.failed.length) console.log(`  re-download these: ${log.failed.join(', ')}`);
 }
 
 if (require.main === module) {
