@@ -10,6 +10,7 @@ backend/coverage/
 backend/dist/
 backend/build/
 backend/.cache/
+backend/data/
 
 #########################################
 # Frontend

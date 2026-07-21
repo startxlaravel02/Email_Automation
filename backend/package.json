@@ -13,7 +13,9 @@
   "type": "commonjs",
   "dependencies": {
     "@google-cloud/local-auth": "^3.0.1",
+    "adm-zip": "^0.6.0",
     "axios": "^1.18.1",
+    "cheerio": "^1.2.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
@@ -24,8 +26,10 @@
     "maxmind": "^5.0.6",
     "mysql2": "^3.22.6",
     "nodemon": "^3.1.14",
+    "p-limit": "^7.3.1",
     "pdfkit": "^0.19.1",
     "saxes": "^6.0.0",
-    "ua-parser-js": "^2.0.10"
+    "ua-parser-js": "^2.0.10",
+    "unzipper": "^0.12.5"
   }
 }
