@@ -10,20 +10,26 @@ const { pool } = require("../config/db"); // adjust path/name if your pool expor
 const UPSERT_SQL = `
   INSERT INTO trademark_leads
     (serial_number, registration_number, mark_text, owner_name, owner_address,
-     status_code, filing_date, registration_date, computed_deadline_date,
-     deadline_type, attorney_name, source)
+     status_code, filing_date, registration_date, registration_expiration_date,
+     abandonment_date, cancellation_date, renewal_date, computed_deadline_date,
+     deadline_type, is_dead, attorney_name, source)
   VALUES ?
   ON DUPLICATE KEY UPDATE
-    registration_number    = VALUES(registration_number),
-    mark_text              = VALUES(mark_text),
-    owner_name             = VALUES(owner_name),
-    owner_address          = VALUES(owner_address),
-    status_code            = VALUES(status_code),
-    filing_date            = VALUES(filing_date),
-    registration_date      = VALUES(registration_date),
-    computed_deadline_date = VALUES(computed_deadline_date),
-    deadline_type          = VALUES(deadline_type),
-    attorney_name          = VALUES(attorney_name)
+    registration_number          = VALUES(registration_number),
+    mark_text                    = VALUES(mark_text),
+    owner_name                   = VALUES(owner_name),
+    owner_address                = VALUES(owner_address),
+    status_code                  = VALUES(status_code),
+    filing_date                  = VALUES(filing_date),
+    registration_date            = VALUES(registration_date),
+    registration_expiration_date = VALUES(registration_expiration_date),
+    abandonment_date             = VALUES(abandonment_date),
+    cancellation_date            = VALUES(cancellation_date),
+    renewal_date                 = VALUES(renewal_date),
+    computed_deadline_date       = VALUES(computed_deadline_date),
+    deadline_type                = VALUES(deadline_type),
+    is_dead                      = VALUES(is_dead),
+    attorney_name                = VALUES(attorney_name)
 `;
 
 /**
@@ -43,8 +49,13 @@ async function upsertBatch(records, source = 'annual_seed') {
     r.status_code,
     r.filing_date,
     r.registration_date,
+    r.registration_expiration_date,
+    r.abandonment_date,
+    r.cancellation_date,
+    r.renewal_date,
     r.computed_deadline_date,
     r.deadline_type,
+    r.is_dead,
     r.attorney_name,
     source,
   ]);

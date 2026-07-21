@@ -32,6 +32,7 @@ const { SaxesParser } = require('saxes');
 const HEADER_FIELDS = new Set([
   'filing-date',
   'registration-date',
+  'registration-expiration-date',
   'status-code',
   'status-date',
   'mark-identification',
@@ -40,6 +41,7 @@ const HEADER_FIELDS = new Set([
   'attorney-name',
   'attorney-docket-number',
   'renewal-date',
+  'international-renewal-date',
   'section-8-filed-in',
   'renewal-filed-in',
   'filing-basis-current-66a-in',
@@ -58,48 +60,60 @@ const HEADER_FIELDS = new Set([
  * dead, because those are direct facts, not a coded lookup.
  */
 function computeDeadline(header) {
-  const isDead = Boolean(header['abandonment-date'] || header['cancellation-date']);
-  if (isDead) {
-    return { deadline_date: null, deadline_type: 'unknown', dead: true };
-  }
+  // Reliable dead signals: these are direct facts, not a coded lookup.
+  const abandonment_date = parseBulkDate(header['abandonment-date']);
+  const cancellation_date = parseBulkDate(header['cancellation-date']);
+  const dead = Boolean(abandonment_date || cancellation_date);
 
-  // If USPTO already computed a renewal-date for us, trust it directly.
-  if (header['renewal-date']) {
-    const d = parseBulkDate(header['renewal-date']);
-    if (d) return { deadline_date: d, deadline_type: 'section_8_9', dead: false };
-  }
-
+  const regExp = parseBulkDate(header['registration-expiration-date']);
+  const renewal = parseBulkDate(header['renewal-date']);
+  const intlRenewal = parseBulkDate(header['international-renewal-date']);
   const regDate = parseBulkDate(header['registration-date']);
-  if (!regDate) {
-    // Pending application — no registration yet, so no §8/§9 deadline exists.
-    return { deadline_date: null, deadline_type: 'unknown', dead: false };
+  const is66a = header['filing-basis-current-66a-in'] === 'T';
+  const lastRenewal = renewal || intlRenewal;
+
+  // Derive the NEXT upcoming deadline (always a FUTURE date). Real-data facts
+  // learned from the actual file drove this logic:
+  //   - <registration-expiration-date> is authoritative but almost always
+  //     EMPTY in this applications product — used first only when present.
+  //   - <renewal-date> IS populated, but it is the date the mark was LAST
+  //     renewed (a past fact), NOT the next due date. The next renewal is ~10
+  //     years later, so we roll it forward to the next future 10-yr mark.
+  //   - the section-8-filed / renewal-filed flags are unreliable (frequently
+  //     blank on live marks), so we do NOT depend on them — we derive purely
+  //     from dates and always roll to the future.
+  // This is a COARSE pre-filter only; TSDR verification refines the exact
+  // deadline per serial before anything is emailed.
+  let deadline_date = null;
+  let deadline_type = 'unknown';
+
+  if (regExp) {
+    deadline_date = regExp;
+    deadline_type = is66a ? 'section_71' : 'section_8_9';
+  } else if (lastRenewal) {
+    deadline_date = nextTenYearMultiple(lastRenewal);
+    deadline_type = is66a ? 'section_71' : 'section_8_9';
+  } else if (regDate) {
+    const section8End = addYears(regDate, 6); // end of the §8 5-6yr window
+    if (section8End.getTime() >= Date.now()) {
+      deadline_date = section8End;            // first §8 not yet due
+      deadline_type = is66a ? 'section_71' : 'section_8';
+    } else {
+      deadline_date = nextTenYearMultiple(regDate); // past first §8 → next 10-yr renewal
+      deadline_type = is66a ? 'section_71' : 'section_8_9';
+    }
   }
+  // else: pending application (no registration) — deadline stays null.
 
-  // Madrid/international basis — different renewal mechanism, flagged
-  // separately and treated as lower priority (per the agreed brief).
-  if (header['filing-basis-current-66a-in'] === 'T') {
-    const d = addYears(regDate, 10);
-    return { deadline_date: d, deadline_type: 'section_71', dead: false };
-  }
-
-  const section8Filed = header['section-8-filed-in'] === 'T';
-  const renewalFiled = header['renewal-filed-in'] === 'T';
-
-  if (!section8Filed) {
-    // Hard deadline = registration + 6 years (the end of the 5-6yr window).
-    return { deadline_date: addYears(regDate, 6), deadline_type: 'section_8', dead: false };
-  }
-
-  if (!renewalFiled) {
-    // Section 8 already done — next relevant deadline is the 9-10yr (or
-    // next 10-year multiple) combined renewal.
-    const tenYearMark = nextTenYearMultiple(regDate);
-    return { deadline_date: tenYearMark, deadline_type: 'section_8_9', dead: false };
-  }
-
-  // Both filed at least once — still due again every 10 years going forward.
-  const tenYearMark = nextTenYearMultiple(regDate);
-  return { deadline_date: tenYearMark, deadline_type: 'section_8_9', dead: false };
+  return {
+    deadline_date,
+    deadline_type,
+    dead,
+    abandonment_date,
+    cancellation_date,
+    registration_expiration_date: regExp,
+    renewal_date: renewal || intlRenewal,
+  };
 }
 
 /** Bulk file dates are YYYYMMDD strings (or already YYYY-MM-DD). Returns a JS Date or null. */
@@ -140,6 +154,18 @@ function toSqlDate(d) {
 }
 
 /**
+ * Clip a value to a column's max length so a single over-long field (USPTO data
+ * has some junk/concatenated values) can never fail a whole batch insert. This
+ * loses no LEADS — the row is kept, only the string is trimmed. TEXT columns
+ * (mark_text, owner_address) are unbounded and aren't capped.
+ */
+function cap(v, n) {
+  if (v == null) return null;
+  const s = String(v);
+  return s.length > n ? s.slice(0, n) : s;
+}
+
+/**
  * Stream-parse a bulk trademark XML file.
  * @param {string} filePath
  * @param {(record: object) => void} onRecord - called once per <case-file>
@@ -156,7 +182,9 @@ function parseBulkFile(filePath, onRecord) {
     let ownerBuf = null;
     let textBuf = '';
 
-    let total = 0, skippedDead = 0, emitted = 0;
+    // We now emit EVERY case-file (approach change: keep all data, filter later).
+    // dead/pending are counted for reporting only — nothing is skipped.
+    let total = 0, deadCount = 0, pendingCount = 0, emitted = 0;
 
     parser.on('error', reject);
 
@@ -227,27 +255,30 @@ function parseBulkFile(filePath, onRecord) {
 
       if (name === 'case-file' && current) {
         total++;
-        const { deadline_date, deadline_type, dead } = computeDeadline(current.header);
+        const dl = computeDeadline(current.header);
+        if (dl.dead) deadCount++;
+        else if (!dl.deadline_date) pendingCount++;
 
-        if (dead) {
-          skippedDead++;
-        } else {
-          const record = {
-            serial_number: current.serial_number,
-            registration_number: current.registration_number,
-            mark_text: current.mark_text,
-            owner_name: current.owner_name,
-            owner_address: current.owner_address,
-            status_code: current.header['status-code'] || null,
-            filing_date: toSqlDate(parseBulkDate(current.header['filing-date'])),
-            registration_date: toSqlDate(parseBulkDate(current.header['registration-date'])),
-            computed_deadline_date: toSqlDate(deadline_date),
-            deadline_type,
-            attorney_name: current.header['attorney-name'] || null,
-          };
-          onRecord(record);
-          emitted++;
-        }
+        const record = {
+          serial_number: cap(current.serial_number, 20),
+          registration_number: cap(current.registration_number, 20),
+          mark_text: current.mark_text,                       // TEXT — unbounded
+          owner_name: cap(current.owner_name, 500),
+          owner_address: current.owner_address,               // TEXT — unbounded
+          status_code: cap(current.header['status-code'], 10),
+          filing_date: toSqlDate(parseBulkDate(current.header['filing-date'])),
+          registration_date: toSqlDate(parseBulkDate(current.header['registration-date'])),
+          registration_expiration_date: toSqlDate(dl.registration_expiration_date),
+          abandonment_date: toSqlDate(dl.abandonment_date),
+          cancellation_date: toSqlDate(dl.cancellation_date),
+          renewal_date: toSqlDate(dl.renewal_date),
+          computed_deadline_date: toSqlDate(dl.deadline_date),
+          deadline_type: dl.deadline_type,
+          is_dead: dl.dead ? 1 : 0,
+          attorney_name: cap(current.header['attorney-name'], 255),
+        };
+        onRecord(record);
+        emitted++;
         current = null;
       }
 
@@ -255,7 +286,7 @@ function parseBulkFile(filePath, onRecord) {
     });
 
     parser.on('end', () => {
-      resolve({ total, skippedDead, emitted });
+      resolve({ total, deadCount, pendingCount, emitted });
     });
 
     const stream = fs.createReadStream(filePath, { encoding: 'utf8', highWaterMark: 1024 * 1024 });
