@@ -31,6 +31,9 @@ const MAX_RESULTS = Number(process.env.POLL_MAX_RESULTS || 10);
 const LABEL = process.env.PROCESSED_LABEL || "AI-Processed";
 const SKIPPED_LABEL = process.env.SKIPPED_LABEL || "AI-Skipped";
 const ACTION_LABEL = process.env.ACTION_REQUIRED_LABEL || "Action Required";
+// Emails tracked-only (AI off or thread paused) get this label so the poller
+// stops re-listing them every cycle. Catch-up removes it; skip swaps it for SKIPPED.
+const PENDING_LABEL = process.env.PENDING_LABEL || "AI-Pending";
 
 // When AUTO_SEND=true the reply is SENT immediately; otherwise it's a draft.
 const AUTO_SEND = process.env.AUTO_SEND === "true";
@@ -187,10 +190,11 @@ async function pollOnce() {
     processed: await getOrCreateLabelId(LABEL),
     skipped: await getOrCreateLabelId(SKIPPED_LABEL),
     actionRequired: await getOrCreateLabelId(ACTION_LABEL),
+    pending: await getOrCreateLabelId(PENDING_LABEL),
   };
 
   const messages = await listUnprocessedMessages(
-    [LABEL, SKIPPED_LABEL, ACTION_LABEL],
+    [LABEL, SKIPPED_LABEL, ACTION_LABEL, PENDING_LABEL],
     MAX_RESULTS
   );
   if (messages.length === 0) return;
@@ -208,15 +212,19 @@ async function pollOnce() {
         const email = await getEmail(msg.id);
         await processMessage(email, labels);
         enqueueForThread(msg.threadId).catch((e) => console.error(`  ↳ engagement enqueue failed: ${e.message}`));
-      } else if (!(await emailExists(msg.id))) {
+      } else {
         // AI off or thread paused → TRACK once (record inbound + trigger reply
-        // detection), then leave the email UNLABELED so it's caught up when AI resumes.
-        const email = await getEmail(msg.id);
-        await logOutcome(email, { status: "skipped", reason: aiEnabled ? "paused" : "ai_off" });
-        enqueueForThread(msg.threadId).catch((e) => console.error(`  ↳ engagement enqueue failed: ${e.message}`));
-        console.log(`  ↳ tracked only (${aiEnabled ? "paused thread" : "AI off"}) — ${email.from}`);
+        // detection). Only the first time do we record; but ALWAYS label AI-Pending
+        // so the email stops being re-listed every cycle. Catch-up (on AI turn-on)
+        // removes this label so the poller then replies.
+        if (!(await emailExists(msg.id))) {
+          const email = await getEmail(msg.id);
+          await logOutcome(email, { status: "skipped", reason: aiEnabled ? "paused" : "ai_off" });
+          enqueueForThread(msg.threadId).catch((e) => console.error(`  ↳ engagement enqueue failed: ${e.message}`));
+          console.log(`  ↳ tracked only (${aiEnabled ? "paused thread" : "AI off"}) — ${email.from}`);
+        }
+        await addLabel(msg.id, labels.pending); // stops the every-cycle re-listing
       }
-      // else: AI off/paused AND already tracked earlier → nothing to do this cycle.
     } catch (err) {
       console.error(`  ↳ error on ${msg.id}: ${err.message}`);
     }

@@ -68,15 +68,19 @@ async function upsertBatch(records, source = 'annual_seed') {
  * Candidates for TSDR verification: near-deadline, not yet sent, not
  * re-checked in the last day (so re-runs don't hammer already-fresh rows).
  */
-async function getVerificationCandidates({ windowDays = 45, limit = 200 } = {}) {
+async function getVerificationCandidates({ windowMinDays = 0, windowDays = 45, limit = 200 } = {}) {
+  // windowMinDays sets a LOWER bound so we don't waste TSDR calls on marks whose
+  // deadline is already upon them (those are usually lapsed/cancelled and too late
+  // to pitch). is_dead=0 skips marks the bulk data already knows are dead.
   const [rows] = await pool.query(
     `SELECT id, serial_number FROM trademark_leads
-     WHERE computed_deadline_date BETWEEN CURDATE() AND (CURDATE() + INTERVAL ? DAY)
+     WHERE is_dead = 0
+       AND computed_deadline_date BETWEEN (CURDATE() + INTERVAL ? DAY) AND (CURDATE() + INTERVAL ? DAY)
        AND email_sent_at IS NULL
        AND (attorney_confirmed_at IS NULL OR attorney_confirmed_at < (NOW() - INTERVAL 1 DAY))
      ORDER BY computed_deadline_date ASC
      LIMIT ?`,
-    [windowDays, limit]
+    [windowMinDays, windowDays, limit]
   );
   return rows;
 }

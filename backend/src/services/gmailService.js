@@ -180,6 +180,17 @@ async function addLabel(messageId, labelId) {
   });
 }
 
+// Remove a label from a message (e.g. un-pend an email during catch-up).
+async function removeLabel(messageId, labelId) {
+  const gmail = await getGmailClient();
+
+  await gmail.users.messages.modify({
+    userId: "me",
+    id: messageId,
+    requestBody: { removeLabelIds: [labelId] },
+  });
+}
+
 
 // Send a pre-built raw MIME message (used by the tracking service for multipart HTML).
 async function sendRawMessage({ raw, threadId }) {
@@ -216,6 +227,7 @@ module.exports = {
   listUnprocessedMessages,
   getOrCreateLabelId,
   addLabel,
+  removeLabel,
   sendRawMessage,
   searchMessages,
   getRawMessage
