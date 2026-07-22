@@ -545,10 +545,9 @@ is decoupled from the AI **reply**:
 - The poller records + triggers engagement for **every** inbound email, regardless of the
   global AI toggle or a per-thread pause — a recipient reply is a human signal we always capture.
 - The AI **reply** only fires when the AI is **on** AND the thread is **not paused**.
-- Emails we don't reply to are recorded but left **UNLABELED ("pending")**, so they're
-  **caught up automatically** when the AI is turned back on (the poller re-sees the unlabeled
-  email and replies). Each pending email is tracked **once** (guarded by `emailExists`) — no
-  re-work loop while the AI is off.
+- Emails we don't reply to are recorded, then tagged with an **`AI-Pending`** Gmail label, so
+  they're **caught up** when the AI is turned back on. Each pending email is tracked **once**
+  (guarded by `emailExists`).
 
 **Result:** replies reach `verified_human` even while the AI is off or a thread is paused, and
 verification is always driven by the recipient's reply — never by our AI's response.
@@ -556,11 +555,41 @@ verification is always driven by the recipient's reply — never by our AI's res
 **Phase A (done):** `poller.service.js` (pollOnce decoupled; `processMessage` now takes the
 email object), `email.model.js` (`emailExists`). No schema change.
 
-**Phase B/C (done):** turning the AI **on** in the dashboard pops up a choice when emails
-arrived while it was off — *"N emails arrived while the AI was off — reply to them (catch-up)
-or skip them?"*
-- **Reply (catch-up):** just enable the AI; the poller replies to the pending (unlabeled) emails.
-- **Skip:** `POST /api/dashboard/pending/skip` labels them `AI-Skipped` (handled, no reply), then enable.
-- **Cancel:** leaves the AI off.
-Endpoints: `GET /api/dashboard/pending` (count of waiting emails), `POST /api/dashboard/pending/skip`.
-Files: `dashboard.controller.js` + `dashboard.routes.js` (endpoints), `public/index.html` (popup modal).
+### 17.1 Update (2026-07-22): `AI-Pending` label + per-conversation catch-up
+
+The original "leave it UNLABELED" pending design had a bug: `listUnprocessedMessages` uses
+`in:inbox is:unread -label:...`, so an unread **unlabeled** email was returned **every poll
+cycle forever** (`[poller] 1 new email` spam, even though `emailExists` made it a no-op). Fixed
+by giving pending emails an explicit label.
+
+- **`AI-Pending` label** (`process.env.PENDING_LABEL`, default `AI-Pending`): every tracked-only
+  email (AI off **or** thread paused) is tagged with it, and the poller **excludes** it from
+  `listUnprocessedMessages`. So each pending email is listed exactly once → no more re-poll spam.
+- **`getPending` counts the label** (`searchMessages('label:"AI-Pending"')`) — precise, instead
+  of "any unlabeled unread email."
+- **Reply (catch-up):** `POST .../pending/catchup` **removes** the `AI-Pending` label so the
+  poller re-lists the email and (AI now on) answers it.
+- **Skip:** `POST .../pending/skip` adds `AI-Skipped` and removes `AI-Pending`.
+- **Ordering (critical):** the dashboard enables the AI (or resumes the thread) **first**, then
+  calls catch-up — otherwise the poller would just re-pend the emails while still off.
+
+**Per-conversation catch-up (new):** the same popup now also fires when **resuming a paused
+thread** — scoped to that conversation ("*N emails arrived on this conversation while it was
+paused*"). Only produces replies when the **global AI toggle is on** (per-thread pause is for
+taking over one thread while the AI runs the rest).
+
+Endpoints:
+- Global: `GET /api/dashboard/pending`, `POST /api/dashboard/pending/{skip,catchup}`
+- Per-thread: `GET /api/dashboard/threads/:threadId/pending`, `POST .../pending/{skip,catchup}`
+
+Files: `gmailService.js` (`removeLabel`), `poller.service.js` (`AI-Pending` label + exclude),
+`dashboard.controller.js` (shared `listPendingMsgs`/`doSkip`/`doCatchup` helpers + thread-scoped
+handlers), `dashboard.routes.js`, `public/index.html` (popup + reordered `toggleAi`/`toggleThread`).
+
+### 17.2 Known limitation: human replies are NOT open-trackable
+
+Open/click tracking requires injecting a 1×1 pixel + rewriting links **at send time**. A reply
+typed **directly in Gmail** never passes through our app, so it can't be open-tracked and never
+lands in `tracked_email` (that table is only outbound mail *we* sent with a pixel; the customer's
+inbound reply lives in `emails` and still drives reply-detection/verification). The only fix is a
+**dashboard "Reply" box** that sends via `sendTracked` — **deferred until frontend work begins.**

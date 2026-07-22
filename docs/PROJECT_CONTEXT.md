@@ -1,15 +1,17 @@
 # AI Email Assistant — Project Context & Handoff
 
 > Paste this whole file into a new chat to resume with full context.
-> Last updated: 2026-07-16. Status: Phases 1–4, 5a (polling), attachment triage, thread context, knowledge base, MySQL logging + HTML dashboard + AI on/off toggle + per-conversation pause (MVP), **and a full Email Tracking & Analytics system** — all complete and working.
+> Last updated: 2026-07-22. Status: Phases 1–4, 5a (polling), attachment triage, thread context, knowledge base, MySQL logging + HTML dashboard + AI on/off toggle + per-conversation pause (MVP), **a full Email Tracking & Analytics system**, the **Open Intelligence (engagement) engine**, and the **USPTO trademark lead-gen pipeline** — all working.
 >
-> 📄 **The tracking/analytics work (opens, clicks, geo/city, bot-vs-human classification,
-> dashboards, exports, bounces, suppression) is documented in its own file:
-> [`TRACKING_AND_ANALYTICS.md`](./TRACKING_AND_ANALYTICS.md).** Sections below §5 predate it.
+> 📄 **Companion docs (read these for the details):**
+> - [`TRACKING_AND_ANALYTICS.md`](./TRACKING_AND_ANALYTICS.md) — opens, clicks, geo/city, bot-vs-human, exports, bounces, suppression.
+> - [`OPEN_INTELLIGENCE_ENGINE.md`](./OPEN_INTELLIGENCE_ENGINE.md) — engagement/Trust-Level engine; **§17** = AI-off decoupling + `AI-Pending` catch-up (global & per-conversation).
+> - [`USPTO_LEAD_PIPELINE.md`](./USPTO_LEAD_PIPELINE.md) — trademark lead-gen: bulk seed (91 parts → ~14M rows) + TSDR verification → `qualified_leads`.
 >
-> Also now true (were open items before): a **git repo exists** (initial commit) with
-> secrets gitignored; the database is **MySQL** (not MongoDB); the **USPTO lead-gen
-> pipeline is paused** (see the tracking doc §13).
+> **Where we are (2026-07-22):**
+> - USPTO: full register seeded (~13.99M rows). TSDR verification of the 20–45-day window **in progress — paused at 5,832 verified / 1,020 qualified** (~41k target; resumable, ~8k leads expected).
+> - Engagement AI-off fixes (`AI-Pending` label to stop poll-spam, global + per-conversation catch-up popups) are **coded but uncommitted — awaiting a manual test** (restart + hard-refresh).
+> - Git repo exists with secrets gitignored; DB is **MySQL**.
 
 ---
 
