@@ -20,6 +20,7 @@ const trademarkLeadModel = require('../../models/trademarkLead.model');
 
 const BATCH_LIMIT = parseInt(process.env.TSDR_BATCH_LIMIT || '100', 10);
 const WINDOW_DAYS = parseInt(process.env.TSDR_WINDOW_DAYS || '45', 10);
+const WINDOW_MIN_DAYS = parseInt(process.env.TSDR_WINDOW_MIN_DAYS || '0', 10);
 const RATE_LIMIT_MS = 1100; // ~1 req/sec, safely under TSDR's 60/min limit
 
 function sleep(ms) {
@@ -52,8 +53,9 @@ async function run() {
     process.exit(1);
   }
 
-  console.log(`[tsdr-verify] fetching candidates (window=${WINDOW_DAYS}d, limit=${BATCH_LIMIT})...`);
+  console.log(`[tsdr-verify] fetching candidates (window=${WINDOW_MIN_DAYS}-${WINDOW_DAYS}d, limit=${BATCH_LIMIT})...`);
   const candidates = await trademarkLeadModel.getVerificationCandidates({
+    windowMinDays: WINDOW_MIN_DAYS,
     windowDays: WINDOW_DAYS,
     limit: BATCH_LIMIT,
   });
@@ -89,6 +91,11 @@ async function run() {
       console.error(`[tsdr-verify] FAILED for ${candidate.serial_number}:`, err.message);
       // Deliberately continue to the next candidate rather than aborting
       // the whole run over one bad serial number.
+    }
+
+    const checked = verified + errored;
+    if (checked % 200 === 0) {
+      console.log(`[tsdr-verify] progress: ${checked}/${candidates.length} checked — ${verified} ok, ${errored} err, ${foundNoAttorney} no-attorney, ${foundDead} dead`);
     }
 
     await sleep(RATE_LIMIT_MS);
