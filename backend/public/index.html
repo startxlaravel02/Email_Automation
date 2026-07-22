@@ -169,6 +169,7 @@
         const b = document.getElementById("toggle");
 
         // Turning ON: if emails piled up while the AI was off, ask what to do with them.
+        let choice = null;
         if (next) {
           let pending = 0;
           try {
@@ -176,31 +177,28 @@
             pending = p.count || 0;
           } catch (e) {}
           if (pending > 0) {
-            const choice = await aiOnChoice(pending);
-            if (choice === "cancel") return; // leave the AI off
-            if (choice === "skip") {
-              b.disabled = true;
-              try {
-                await fetch("/api/dashboard/pending/skip", { method: "POST" });
-              } catch (e) {
-                alert("Failed to skip pending: " + e.message);
-                b.disabled = false;
-                return;
-              }
-              b.disabled = false;
-            }
-            // "reply" (catch-up) → nothing extra; the poller replies to them once AI is on.
+            choice = await aiOnChoice(pending);
+            if (choice === "cancel") return; // leave the AI off, keep them pending
           }
         }
 
         b.disabled = true;
         try {
+          // 1) Flip the AI state FIRST.
           const s = await fetch("/api/dashboard/settings", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ aiEnabled: next }),
           }).then((r) => r.json());
           setToggle(s.aiEnabled);
+
+          // 2) THEN handle the backlog — order matters: catch-up un-pends emails so
+          //    the (now-on) poller replies; doing it before step 1 would re-pend them.
+          if (next && choice === "skip") {
+            await fetch("/api/dashboard/pending/skip", { method: "POST" });
+          } else if (next && choice === "reply") {
+            await fetch("/api/dashboard/pending/catchup", { method: "POST" });
+          }
         } catch (e) {
           alert("Failed to update: " + e.message);
         }
@@ -209,11 +207,15 @@
 
       // Popup asking how to handle emails that arrived while the AI was off.
       // Resolves to "reply" (catch up), "skip", or "cancel".
-      function aiOnChoice(n) {
+      function aiOnChoice(n, scope) {
         return new Promise((resolve) => {
           const modal = document.getElementById("ai-modal");
+          const where =
+            scope === "thread"
+              ? "on this conversation while it was paused"
+              : "while the AI was off";
           document.getElementById("ai-modal-text").textContent =
-            n + " email" + (n === 1 ? "" : "s") + " arrived while the AI was off. What should happen when you turn it on?";
+            n + " email" + (n === 1 ? "" : "s") + " arrived " + where + ". What should happen now?";
           modal.style.display = "flex";
           const done = (c) => {
             modal.style.display = "none";
@@ -231,12 +233,37 @@
 
       // --- per-conversation AI pause ---
       async function toggleThread(threadId, currentlyPaused) {
+        const resuming = !!currentlyPaused; // currentlyPaused truthy => we're resuming
+        const tp = "/api/dashboard/threads/" + encodeURIComponent(threadId);
+
+        // Resuming: if emails piled up on THIS conversation while it was paused,
+        // ask whether to reply to them or skip them (same flow as the global toggle).
+        let choice = null;
+        if (resuming) {
+          let pending = 0;
+          try {
+            const p = await fetch(tp + "/pending").then((r) => r.json());
+            pending = p.count || 0;
+          } catch (e) {}
+          if (pending > 0) {
+            choice = await aiOnChoice(pending, "thread");
+            if (choice === "cancel") return; // stay paused, keep them pending
+          }
+        }
+
         try {
-          await fetch("/api/dashboard/threads/" + encodeURIComponent(threadId), {
+          // 1) Flip the pause state FIRST (resume must be in effect before catch-up).
+          await fetch(tp, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ paused: !currentlyPaused }),
           });
+          // 2) THEN handle this conversation's backlog.
+          if (resuming && choice === "skip") {
+            await fetch(tp + "/pending/skip", { method: "POST" });
+          } else if (resuming && choice === "reply") {
+            await fetch(tp + "/pending/catchup", { method: "POST" });
+          }
           load(); // refresh to reflect the new state
         } catch (e) {
           alert("Failed to update conversation: " + e.message);
