@@ -2,7 +2,10 @@
 import { Eye, Pause, Play } from 'lucide-vue-next'
 import StatusBadge from './StatusBadge.vue'
 
-defineProps({ rows: { type: Array, default: () => [] } })
+defineProps({
+  rows: { type: Array, default: () => [] },
+  showActions: { type: Boolean, default: true },
+})
 defineEmits(['toggle-pause', 'view'])
 
 function fromName(sender = '') {
@@ -33,17 +36,19 @@ function when(dt) {
     <table class="table">
       <thead>
         <tr>
+          <th class="sno-col">#</th>
           <th>Status</th>
           <th>From</th>
           <th>Subject / Reply</th>
           <th>Mode</th>
           <th>AI Time</th>
           <th>When</th>
-          <th class="actions-col">Actions</th>
+          <th v-if="showActions" class="actions-col">Actions</th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="row in rows" :key="row.id">
+        <tr v-for="(row, i) in rows" :key="row.id ?? row.thread_id ?? i">
+          <td class="sno mono muted">{{ i + 1 }}</td>
           <td><StatusBadge :status="row.status" /></td>
 
           <td>
@@ -52,7 +57,10 @@ function when(dt) {
           </td>
 
           <td class="subject-cell">
-            <div class="subject">{{ row.subject || '(no subject)' }}</div>
+            <div class="subject">
+              <span class="subject-text">{{ row.subject || '(no subject)' }}</span>
+              <span v-if="row.msg_count > 1" class="msg-count">{{ row.msg_count }}</span>
+            </div>
             <div v-if="row.reply_preview" class="reply muted">{{ row.reply_preview }}</div>
           </td>
 
@@ -60,7 +68,7 @@ function when(dt) {
           <td class="nowrap mono">{{ aiTime(row.ai_ms) }}</td>
           <td class="nowrap muted">{{ when(row.processed_at) }}</td>
 
-          <td class="actions-col">
+          <td v-if="showActions" class="actions-col">
             <div class="actions">
               <button
                 class="btn btn-sm"
@@ -85,6 +93,13 @@ function when(dt) {
 .table-wrap {
   overflow-x: auto;
 }
+.sno-col {
+  width: 44px;
+}
+.sno {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
 .from-name {
   font-weight: 600;
   color: var(--text);
@@ -96,11 +111,27 @@ function when(dt) {
   max-width: 380px;
 }
 .subject {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-weight: 500;
   color: var(--text);
-  white-space: nowrap;
+}
+.subject-text {
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.msg-count {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 0 7px;
+  line-height: 16px;
 }
 .reply {
   font-size: var(--fs-xs);
