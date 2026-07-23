@@ -16,6 +16,18 @@ const router = createRouter({
           meta: { title: 'Dashboard' },
         },
         {
+          path: 'conversations/:threadId',
+          name: 'conversation',
+          component: () => import('@/views/ConversationDetailView.vue'),
+          meta: { title: 'Conversation' },
+        },
+        {
+          path: 'activity',
+          name: 'activity',
+          component: () => import('@/views/ActivityLogView.vue'),
+          meta: { title: 'Activity Log' },
+        },
+        {
           path: 'tracking',
           name: 'tracking',
           component: () => import('@/views/EmailTrackingView.vue'),
@@ -26,6 +38,12 @@ const router = createRouter({
           name: 'recipients',
           component: () => import('@/views/RecipientActivityView.vue'),
           meta: { title: 'Recipient Activity' },
+        },
+        {
+          path: 'recipients/:email',
+          name: 'recipient',
+          component: () => import('@/views/RecipientDetailView.vue'),
+          meta: { title: 'Recipient' },
         },
         {
           path: 'leads',

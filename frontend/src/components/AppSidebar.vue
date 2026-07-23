@@ -1,13 +1,25 @@
 <script setup>
-import { RouterLink } from 'vue-router'
-import { LayoutDashboard, Activity, Users, Target, Settings, X } from 'lucide-vue-next'
+import { RouterLink, useRoute } from 'vue-router'
+import { LayoutDashboard, ScrollText, Activity, Users, Target, Settings, X } from 'lucide-vue-next'
 
 defineProps({ open: Boolean })
 defineEmits(['close'])
 
+const route = useRoute()
+
+// Active when the path matches — and the Dashboard stays highlighted while
+// you're drilled into a conversation detail page (it's a child of Dashboard).
+function isActive(to) {
+  const p = route.path
+  if (p === to || p.startsWith(to + '/')) return true
+  if (to === '/dashboard' && p.startsWith('/conversations')) return true
+  return false
+}
+
 // Nav is data-driven so adding a page later = one line here.
 const nav = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/activity', label: 'Activity Log', icon: ScrollText },
   { to: '/tracking', label: 'Email Tracking', icon: Activity },
   { to: '/recipients', label: 'Recipient Activity', icon: Users },
   { to: '/leads', label: 'Leads', icon: Target },
@@ -27,7 +39,13 @@ const nav = [
 
     <div class="nav-section section-label">Menu</div>
     <nav class="nav">
-      <RouterLink v-for="item in nav" :key="item.to" :to="item.to" class="nav-item">
+      <RouterLink
+        v-for="item in nav"
+        :key="item.to"
+        :to="item.to"
+        class="nav-item"
+        :class="{ active: isActive(item.to) }"
+      >
         <component :is="item.icon" :size="18" :stroke-width="2" />
         <span>{{ item.label }}</span>
       </RouterLink>
@@ -114,7 +132,7 @@ const nav = [
   background: var(--surface-2);
   color: var(--text);
 }
-.nav-item.router-link-active {
+.nav-item.active {
   background: var(--primary-50);
   color: var(--primary-600);
   font-weight: 600;
