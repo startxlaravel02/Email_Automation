@@ -1,24 +1,22 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { Mail, MailCheck, SkipForward, TriangleAlert } from 'lucide-vue-next'
 import { api } from '@/services/api'
 import { useSettingsStore } from '@/stores/settings'
 import StatCard from '@/components/StatCard.vue'
 import ActivityTable from '@/components/ActivityTable.vue'
-import EmailDetailModal from '@/components/EmailDetailModal.vue'
 
+const router = useRouter()
 const settings = useSettingsStore()
 
 const loading = ref(true)
 const error = ref('')
 const stats = reactive({ total: 0, replied: 0, skipped: 0, escalated: 0 })
 
-const emails = ref([])
-const emailsLoading = ref(true)
-const emailsError = ref('')
-
-const selected = ref(null)
-const modalOpen = ref(false)
+const conversations = ref([])
+const convLoading = ref(true)
+const convError = ref('')
 
 async function loadStats() {
   try {
@@ -33,22 +31,22 @@ async function loadStats() {
   }
 }
 
-async function loadEmails() {
-  emailsLoading.value = true
-  emailsError.value = ''
+async function loadConversations() {
+  convLoading.value = true
+  convError.value = ''
   try {
-    const r = await api.get('/dashboard/emails?limit=50')
-    emails.value = r.emails || []
+    const r = await api.get('/dashboard/conversations?limit=50')
+    conversations.value = r.conversations || []
   } catch (e) {
-    emailsError.value = e.message
+    convError.value = e.message
   } finally {
-    emailsLoading.value = false
+    convLoading.value = false
   }
 }
 
 async function refresh() {
   loading.value = true
-  await Promise.all([loadStats(), loadEmails()])
+  await Promise.all([loadStats(), loadConversations()])
   loading.value = false
 }
 
@@ -60,18 +58,14 @@ async function onPause(row) {
   const next = !row.paused
   try {
     await api.post(`/dashboard/threads/${encodeURIComponent(row.thread_id)}`, { paused: next })
-    // A thread can span several rows — reflect the new state on all of them.
-    emails.value.forEach((e) => {
-      if (e.thread_id === row.thread_id) e.paused = next
-    })
+    row.paused = next
   } catch (e) {
     alert('Failed to update conversation: ' + e.message)
   }
 }
 
 function onView(row) {
-  selected.value = row
-  modalOpen.value = true
+  router.push({ name: 'conversation', params: { threadId: row.thread_id } })
 }
 
 onMounted(() => {
@@ -120,15 +114,13 @@ onMounted(() => {
 
     <div class="card">
       <div class="card-pad table-head-row">
-        <div class="section-label">Recent activity</div>
+        <div class="section-label">Conversations</div>
       </div>
-      <div v-if="emailsError" class="empty-state">Couldn't load activity: {{ emailsError }}</div>
-      <div v-else-if="emailsLoading" class="empty-state">Loading…</div>
-      <div v-else-if="!emails.length" class="empty-state">No activity yet.</div>
-      <ActivityTable v-else :rows="emails" @toggle-pause="onPause" @view="onView" />
+      <div v-if="convError" class="empty-state">Couldn't load conversations: {{ convError }}</div>
+      <div v-else-if="convLoading" class="empty-state">Loading…</div>
+      <div v-else-if="!conversations.length" class="empty-state">No conversations yet.</div>
+      <ActivityTable v-else :rows="conversations" @toggle-pause="onPause" @view="onView" />
     </div>
-
-    <EmailDetailModal :open="modalOpen" :email="selected" @close="modalOpen = false" />
   </div>
 </template>
 
