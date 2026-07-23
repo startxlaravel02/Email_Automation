@@ -166,10 +166,26 @@ async function searchRecipients(q = "", limit = 50) {
 // Full history for one recipient: each email (with first/last open+click) + a timeline.
 async function getRecipientDetail(email) {
   const [emails] = await pool.query(
-    `SELECT id, subject, sent_at, delivery_status,
-            open_count, first_opened_at, last_opened_at,
-            click_count, first_clicked_at, last_clicked_at
-       FROM tracked_emails WHERE recipient_email = ? ORDER BY id DESC`,
+    `SELECT te.id, te.subject, te.sent_at, te.delivery_status,
+            te.open_count, te.first_opened_at, te.last_opened_at,
+            te.click_count, te.first_clicked_at, te.last_clicked_at,
+            e.thread_id,
+            ee.engagement_level, ee.engagement_stage
+       FROM tracked_emails te
+       LEFT JOIN replies r ON r.id = te.reply_id
+       LEFT JOIN emails e  ON e.id = r.email_id
+       LEFT JOIN email_engagement ee ON ee.tracked_email_id = te.id
+      WHERE te.recipient_email = ? ORDER BY te.id DESC`,
+    [email]
+  );
+  // Links this recipient actually clicked (human/proxy, never bot), with counts.
+  const [links] = await pool.query(
+    `SELECT ev.link_url AS url, COUNT(*) AS clicks
+       FROM email_events ev
+       JOIN tracked_emails te ON te.id = ev.tracked_email_id
+      WHERE te.recipient_email = ? AND ev.event_type = 'click'
+        AND ev.link_url IS NOT NULL AND ev.source <> 'bot'
+      GROUP BY ev.link_url ORDER BY clicks DESC LIMIT 50`,
     [email]
   );
   const [timeline] = await pool.query(
@@ -183,7 +199,7 @@ async function getRecipientDetail(email) {
     `SELECT reason FROM suppressed_recipients WHERE email = ? LIMIT 1`,
     [email]
   );
-  return { email, suppressed: supp.length ? supp[0].reason : null, emails, timeline };
+  return { email, suppressed: supp.length ? supp[0].reason : null, emails, timeline, links };
 }
 
 async function getExportRows(limit = 5000, { from, to } = {}) {
@@ -200,9 +216,46 @@ async function getExportRows(limit = 5000, { from, to } = {}) {
   return rows;
 }
 
+// Tracking status of every sent (tracked) email on a given thread — open/click
+// counts + delivery status. Powers the "tracking" panel on the conversation page.
+async function getThreadTracking(threadId) {
+  const [rows] = await pool.query(
+    `SELECT te.id, te.subject, te.sent_at, te.delivery_status,
+            te.open_count, te.first_opened_at, te.last_opened_at,
+            te.click_count, te.first_clicked_at, te.last_clicked_at,
+            te.recipient_email,
+            ee.engagement_level, ee.engagement_stage
+       FROM tracked_emails te
+       JOIN replies r ON r.id = te.reply_id
+       JOIN emails e  ON e.id = r.email_id
+       LEFT JOIN email_engagement ee ON ee.tracked_email_id = te.id
+      WHERE e.thread_id = ? ORDER BY te.id ASC`,
+    [threadId]
+  );
+  return rows;
+}
+
+// Links clicked on a given thread (human/proxy, never bot), with counts.
+async function getThreadLinks(threadId) {
+  const [rows] = await pool.query(
+    `SELECT ev.link_url AS url, COUNT(*) AS clicks
+       FROM email_events ev
+       JOIN tracked_emails te ON te.id = ev.tracked_email_id
+       JOIN replies r ON r.id = te.reply_id
+       JOIN emails e  ON e.id = r.email_id
+      WHERE e.thread_id = ? AND ev.event_type = 'click'
+        AND ev.link_url IS NOT NULL AND ev.source <> 'bot'
+      GROUP BY ev.link_url ORDER BY clicks DESC`,
+    [threadId]
+  );
+  return rows;
+}
+
 module.exports = {
   getOverview,
   getBreakdown,
+  getThreadTracking,
+  getThreadLinks,
   getMostClickedLinks,
   getRecentActivity,
   getEngagementTrend,
