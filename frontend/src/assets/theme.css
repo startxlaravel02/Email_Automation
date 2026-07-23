@@ -1,0 +1,248 @@
+/* ============================================================
+   Global theme — ONE place to control the whole look.
+   Change a variable here and it updates everywhere.
+   Light, compact, professional (AuthLinkPay-style).
+   ============================================================ */
+
+:root {
+  /* Surfaces */
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #f9fafb;
+  --sidebar-bg: #ffffff;
+
+  /* Text */
+  --text: #101828;
+  --text-2: #475467;
+  --muted: #98a2b3;
+
+  /* Brand / accent */
+  --primary: #4f46e5;
+  --primary-600: #4338ca;
+  --primary-50: #eef2ff;
+
+  /* Status */
+  --success: #067647;
+  --success-bg: #ecfdf3;
+  --warn: #b54708;
+  --warn-bg: #fffaeb;
+  --danger: #b42318;
+  --danger-bg: #fef3f2;
+  --info: #175cd3;
+  --info-bg: #eff8ff;
+
+  /* Lines & effects */
+  --border: #eaecf0;
+  --border-strong: #d0d5dd;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow: 0 1px 3px rgba(16, 24, 40, 0.08), 0 1px 2px rgba(16, 24, 40, 0.04);
+
+  /* Shape & rhythm */
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-pill: 999px;
+  --space: 16px;
+
+  /* Type — self-hosted Inter, bundled in the app (imported in main.js). We use
+     the "Inter Variable" family name ON PURPOSE so it can't collide with the
+     broken/symbol font named plain "Inter" installed on this machine. Arial is
+     the safe fallback. NEVER add bare 'Inter' or 'system-ui' here. */
+  --font: 'Inter Variable', Arial, 'Segoe UI', Helvetica, sans-serif;
+  /* Monospace for numeric values (stat counts, amounts) — self-hosted
+     JetBrains Mono (imported in main.js), the same face as the reference. */
+  --font-mono: 'JetBrains Mono Variable', 'Consolas', ui-monospace, monospace;
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs: 14px;
+  --fs-lg: 16px;
+  --fs-xl: 20px;
+  --fs-2xl: 26px;
+
+  /* Layout */
+  --sidebar-w: 224px;
+  --header-h: 50px;
+}
+
+/* --- reset --- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font);
+  font-size: var(--fs);
+  color: var(--text);
+  background: var(--bg);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* --- typography helpers --- */
+.page-title {
+  font-size: var(--fs-2xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.page-subtitle {
+  color: var(--text-2);
+  font-size: var(--fs);
+  margin-top: 2px;
+}
+.muted {
+  color: var(--muted);
+}
+.section-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* --- card --- */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+}
+.card-pad {
+  padding: 20px;
+}
+
+/* --- buttons --- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 14px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+}
+.btn:hover {
+  background: var(--surface-2);
+}
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #fff;
+}
+.btn-primary:hover {
+  background: var(--primary-600);
+}
+.btn-sm {
+  height: 30px;
+  padding: 0 10px;
+  font-size: var(--fs-xs);
+}
+.btn-ghost {
+  border-color: transparent;
+  background: transparent;
+}
+.btn-ghost:hover {
+  background: var(--surface-2);
+}
+
+/* --- badges --- */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  border-radius: var(--radius-pill);
+  line-height: 1.5;
+}
+.badge-success { color: var(--success); background: var(--success-bg); }
+.badge-warn    { color: var(--warn);    background: var(--warn-bg); }
+.badge-danger  { color: var(--danger);  background: var(--danger-bg); }
+.badge-info    { color: var(--info);    background: var(--info-bg); }
+.badge-muted   { color: var(--text-2);  background: var(--surface-2); }
+
+/* --- table --- */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+.table thead th {
+  text-align: left;
+  padding: 12px 16px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.table tbody td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-2);
+  vertical-align: middle;
+}
+.table tbody tr:hover {
+  background: var(--surface-2);
+}
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* --- form controls --- */
+.input,
+.select {
+  height: 36px;
+  padding: 0 12px;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  outline: none;
+  width: 100%;
+}
+.input:focus,
+.select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-50);
+}
+
+/* --- small state boxes --- */
+.empty-state {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
