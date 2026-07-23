@@ -85,4 +85,54 @@ async function emailExists(gmailId) {
   return rows.length > 0;
 }
 
-module.exports = { recordEmail, recordReply, getRecentEmails, getStats, emailExists };
+// One row per CONVERSATION (thread): the latest email in each thread + its
+// latest reply, message count, and pause state. Powers the dashboard list so a
+// multi-message thread shows as a SINGLE entry (not one row per email).
+async function getConversations(limit = 50) {
+  const lim = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
+  const [rows] = await pool.query(
+    `SELECT e.thread_id, e.gmail_id, e.sender, e.subject, e.status, e.reason,
+            e.email_date, e.processed_at,
+            r.delivery_mode, r.used_context, r.ai_ms, LEFT(r.body, 300) AS reply_preview,
+            (pt.thread_id IS NOT NULL) AS paused,
+            g.msg_count
+     FROM emails e
+     JOIN (
+       SELECT thread_id, MAX(id) AS max_id, COUNT(*) AS msg_count
+       FROM emails GROUP BY thread_id
+     ) g ON g.thread_id = e.thread_id AND g.max_id = e.id
+     LEFT JOIN replies r
+       ON r.id = (SELECT id FROM replies WHERE email_id = e.id ORDER BY id DESC LIMIT 1)
+     LEFT JOIN paused_threads pt ON pt.thread_id = e.thread_id
+     ORDER BY e.processed_at DESC
+     LIMIT ${lim}`
+  );
+  return rows;
+}
+
+// The per-email activity log for ONE thread (every recorded email + its reply),
+// oldest first — shown on the conversation detail page.
+async function getThreadLog(threadId) {
+  const [rows] = await pool.query(
+    `SELECT e.id, e.gmail_id, e.sender, e.subject, e.status, e.reason,
+            e.email_date, e.processed_at,
+            r.delivery_mode, r.used_context, r.ai_ms, r.body AS reply_body
+     FROM emails e
+     LEFT JOIN replies r
+       ON r.id = (SELECT id FROM replies WHERE email_id = e.id ORDER BY id DESC LIMIT 1)
+     WHERE e.thread_id = ?
+     ORDER BY e.id ASC`,
+    [threadId]
+  );
+  return rows;
+}
+
+module.exports = {
+  recordEmail,
+  recordReply,
+  getRecentEmails,
+  getStats,
+  emailExists,
+  getConversations,
+  getThreadLog,
+};

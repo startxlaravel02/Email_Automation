@@ -4,6 +4,8 @@ const router = express.Router();
 
 const {
   listRecent,
+  listConversations,
+  getConversation,
   stats,
   getSettings,
   updateSettings,
@@ -17,6 +19,8 @@ const {
 } = require("../controllers/dashboard.controller");
 
 router.get("/emails", listRecent);
+router.get("/conversations", listConversations);
+router.get("/conversations/:threadId", getConversation);
 router.get("/stats", stats);
 router.get("/settings", getSettings);
 router.post("/settings", updateSettings);

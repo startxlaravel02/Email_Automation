@@ -1,7 +1,8 @@
-const { getRecentEmails, getStats } = require("../models/email.model");
+const { getRecentEmails, getStats, getConversations, getThreadLog } = require("../models/email.model");
 const { isAiEnabled, setAiEnabled } = require("../models/settings.model");
 const { setThreadPaused } = require("../models/thread.model");
-const { searchMessages, getOrCreateLabelId, addLabel, removeLabel } = require("../services/gmailService");
+const { searchMessages, getOrCreateLabelId, addLabel, removeLabel, getThread } = require("../services/gmailService");
+const { getThreadTracking, getThreadLinks } = require("../models/trackingStats.model");
 
 const SKIPPED_LABEL = process.env.SKIPPED_LABEL || "AI-Skipped";
 const PENDING_LABEL = process.env.PENDING_LABEL || "AI-Pending";
@@ -18,6 +19,35 @@ const listRecent = async (req, res) => {
     res
       .status(500)
       .json({ success: false, message: "Failed to load dashboard emails" });
+  }
+};
+
+// GET /api/dashboard/conversations?limit=50  ->  one row per thread (grouped)
+const listConversations = async (req, res) => {
+  try {
+    const conversations = await getConversations(req.query.limit);
+    res.json({ success: true, count: conversations.length, conversations });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ success: false, message: "Failed to load conversations" });
+  }
+};
+
+// GET /api/dashboard/conversations/:threadId  ->  full thread (live Gmail messages)
+// + this thread's processing activity log.
+const getConversation = async (req, res) => {
+  try {
+    const { threadId } = req.params;
+    const [messages, log, tracking, links] = await Promise.all([
+      getThread(threadId).catch(() => []), // live Gmail thread; empty if unavailable
+      getThreadLog(threadId),
+      getThreadTracking(threadId).catch(() => []),
+      getThreadLinks(threadId).catch(() => []),
+    ]);
+    res.json({ success: true, threadId, messages, log, tracking, links });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ success: false, message: "Failed to load conversation" });
   }
 };
 
@@ -185,6 +215,8 @@ const catchupThreadPending = async (req, res) => {
 
 module.exports = {
   listRecent,
+  listConversations,
+  getConversation,
   stats,
   getSettings,
   updateSettings,
