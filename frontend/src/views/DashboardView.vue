@@ -4,34 +4,78 @@ import { Mail, MailCheck, SkipForward, TriangleAlert } from 'lucide-vue-next'
 import { api } from '@/services/api'
 import { useSettingsStore } from '@/stores/settings'
 import StatCard from '@/components/StatCard.vue'
+import ActivityTable from '@/components/ActivityTable.vue'
+import EmailDetailModal from '@/components/EmailDetailModal.vue'
 
 const settings = useSettingsStore()
+
 const loading = ref(true)
 const error = ref('')
 const stats = reactive({ total: 0, replied: 0, skipped: 0, escalated: 0 })
 
-function toggleAi() {
-  settings.setAi(!settings.aiEnabled).catch((e) => alert('Failed: ' + e.message))
-}
+const emails = ref([])
+const emailsLoading = ref(true)
+const emailsError = ref('')
 
-async function load() {
-  loading.value = true
-  error.value = ''
+const selected = ref(null)
+const modalOpen = ref(false)
+
+async function loadStats() {
   try {
     const r = await api.get('/dashboard/stats')
     stats.total = r.total || 0
     stats.replied = r.byStatus?.replied || 0
     stats.skipped = r.byStatus?.skipped || 0
     stats.escalated = r.byStatus?.escalated || 0
+    error.value = ''
   } catch (e) {
     error.value = e.message
-  } finally {
-    loading.value = false
   }
 }
 
+async function loadEmails() {
+  emailsLoading.value = true
+  emailsError.value = ''
+  try {
+    const r = await api.get('/dashboard/emails?limit=50')
+    emails.value = r.emails || []
+  } catch (e) {
+    emailsError.value = e.message
+  } finally {
+    emailsLoading.value = false
+  }
+}
+
+async function refresh() {
+  loading.value = true
+  await Promise.all([loadStats(), loadEmails()])
+  loading.value = false
+}
+
+function toggleAi() {
+  settings.setAi(!settings.aiEnabled).catch((e) => alert('Failed: ' + e.message))
+}
+
+async function onPause(row) {
+  const next = !row.paused
+  try {
+    await api.post(`/dashboard/threads/${encodeURIComponent(row.thread_id)}`, { paused: next })
+    // A thread can span several rows — reflect the new state on all of them.
+    emails.value.forEach((e) => {
+      if (e.thread_id === row.thread_id) e.paused = next
+    })
+  } catch (e) {
+    alert('Failed to update conversation: ' + e.message)
+  }
+}
+
+function onView(row) {
+  selected.value = row
+  modalOpen.value = true
+}
+
 onMounted(() => {
-  load()
+  refresh()
   settings.fetchSettings().catch(() => {})
 })
 </script>
@@ -53,7 +97,7 @@ onMounted(() => {
           <span class="ai-dot"></span>
           AI Auto-Reply: {{ settings.aiEnabled ? 'ON' : 'OFF' }}
         </button>
-        <button class="btn btn-sm" :disabled="loading" @click="load">Refresh</button>
+        <button class="btn btn-sm" :disabled="loading" @click="refresh">Refresh</button>
       </div>
     </div>
 
@@ -78,8 +122,13 @@ onMounted(() => {
       <div class="card-pad table-head-row">
         <div class="section-label">Recent activity</div>
       </div>
-      <div class="empty-state">Activity table comes next — this is the shell.</div>
+      <div v-if="emailsError" class="empty-state">Couldn't load activity: {{ emailsError }}</div>
+      <div v-else-if="emailsLoading" class="empty-state">Loading…</div>
+      <div v-else-if="!emails.length" class="empty-state">No activity yet.</div>
+      <ActivityTable v-else :rows="emails" @toggle-pause="onPause" @view="onView" />
     </div>
+
+    <EmailDetailModal :open="modalOpen" :email="selected" @close="modalOpen = false" />
   </div>
 </template>
 
