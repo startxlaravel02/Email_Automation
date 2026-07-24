@@ -35,19 +35,33 @@ const listConversations = async (req, res) => {
 
 // GET /api/dashboard/conversations/:threadId  ->  full thread (live Gmail messages)
 // + this thread's processing activity log.
+// Fast DB parts only (log + tracking + links). The Gmail messages are slow
+// (~1.5s) so they're fetched separately — see getConversationMessages.
 const getConversation = async (req, res) => {
   try {
     const { threadId } = req.params;
-    const [messages, log, tracking, links] = await Promise.all([
-      getThread(threadId).catch(() => []), // live Gmail thread; empty if unavailable
+    const [log, tracking, links] = await Promise.all([
       getThreadLog(threadId),
       getThreadTracking(threadId).catch(() => []),
       getThreadLinks(threadId).catch(() => []),
     ]);
-    res.json({ success: true, threadId, messages, log, tracking, links });
+    res.json({ success: true, threadId, log, tracking, links });
   } catch (err) {
     console.error(err.message);
     res.status(500).json({ success: false, message: "Failed to load conversation" });
+  }
+};
+
+// The live Gmail thread messages — its own (slow) request so the page above
+// doesn't wait on it.
+const getConversationMessages = async (req, res) => {
+  try {
+    const { threadId } = req.params;
+    const messages = await getThread(threadId).catch(() => []);
+    res.json({ success: true, threadId, messages });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ success: false, message: "Failed to load messages" });
   }
 };
 
@@ -217,6 +231,7 @@ module.exports = {
   listRecent,
   listConversations,
   getConversation,
+  getConversationMessages,
   stats,
   getSettings,
   updateSettings,

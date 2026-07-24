@@ -1,11 +1,40 @@
-const { getLeads, getLeadsForExport } = require("../models/trademarkLead.model");
+const { getLeads, getLeadsCount, getLeadsForExport } = require("../models/trademarkLead.model");
+
+// Friendly CSV headers — MUST match the checkbox labels in the frontend
+// LeadsView EXPORT_FIELDS so the column names look identical in both places.
+const COLUMN_LABELS = {
+  serial_number: "Serial number",
+  registration_number: "Registration number",
+  owner_email: "Email",
+  owner_name: "Owner name",
+  owner_address: "Address",
+  mark_text: "Trademark (mark)",
+  computed_deadline_date: "Deadline date",
+  deadline_type: "Deadline type",
+  registration_date: "Registration date",
+  registration_expiration_date: "Registration expiration",
+  filing_date: "Filing date",
+  renewal_date: "Renewal date",
+  abandonment_date: "Abandonment date",
+  cancellation_date: "Cancellation date",
+  status_code: "Status code",
+  status_text: "Status text",
+  is_dead: "Is dead",
+  attorney_name: "Attorney name",
+  attorney_confirmed_at: "Attorney confirmed at",
+  lead_status: "Lead status",
+  source: "Source",
+  email_sent_at: "Email sent at",
+  created_at: "Created at",
+  updated_at: "Updated at",
+};
 
 // GET /api/leads?page=1&pageSize=25&from=YYYY-MM-DD&to=YYYY-MM-DD
 const listLeads = async (req, res) => {
   try {
-    const { page, pageSize, from, to, count } = req.query;
+    const { page, pageSize, from, to, q, count } = req.query;
     const data = await getLeads({
-      page, pageSize, from: from || null, to: to || null,
+      page, pageSize, from: from || null, to: to || null, q: q || null,
       withCount: count !== "0",
     });
     res.json({ success: true, ...data });
@@ -26,6 +55,18 @@ function fmtDate(d) {
   return date;
 }
 
+// GET /api/leads/count?from=&to=  ->  just the total (the slow COUNT), on its own.
+const countLeads = async (req, res) => {
+  try {
+    const { from, to, q } = req.query;
+    const total = await getLeadsCount({ from: from || null, to: to || null, q: q || null });
+    res.json({ success: true, total });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ success: false, message: "Failed to count leads" });
+  }
+};
+
 // Escape a value for a CSV cell (and compact any Date so date columns stay narrow).
 function csvCell(v) {
   if (v == null) return "";
@@ -39,15 +80,17 @@ function csvCell(v) {
 // empty/invalid list falls back to the model's defaults.
 const exportLeads = async (req, res) => {
   try {
-    const { from, to, fields } = req.query;
+    const { from, to, fields, limit } = req.query;
     const requested = (fields || "").split(",").map((s) => s.trim()).filter(Boolean);
     const { columns, rows } = await getLeadsForExport({
       from: from || null,
       to: to || null,
       columns: requested,
+      limit: limit ? parseInt(limit, 10) : undefined,
     });
+    const header = columns.map((c) => COLUMN_LABELS[c] || c).join(",");
     const csv = [
-      columns.join(","),
+      header,
       ...rows.map((r) => columns.map((c) => csvCell(r[c])).join(",")),
     ].join("\n");
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
@@ -59,4 +102,4 @@ const exportLeads = async (req, res) => {
   }
 };
 
-module.exports = { listLeads, exportLeads };
+module.exports = { listLeads, countLeads, exportLeads };

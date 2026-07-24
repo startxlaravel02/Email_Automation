@@ -130,25 +130,32 @@ const DEFAULT_EXPORT_COLUMNS = [
 
 // Shared WHERE for the leads list/export. A "lead" = a VERIFIED row (fast: uses
 // idx_lead_status) with NO attorney and an owner email. Optional deadline range.
-function leadsWhere({ from, to }) {
+function leadsWhere({ from, to, q }) {
   const where = [
     "lead_status = 'verified'",
     "(attorney_name IS NULL OR attorney_name = '')",
     "owner_email IS NOT NULL AND owner_email <> ''",
+    "(status_text IS NULL OR status_text NOT REGEXP 'abandon|cancel')", // skip dead marks (matches qualified_leads view)
   ];
   const params = [];
   if (from) { where.push("computed_deadline_date >= ?"); params.push(from); }
   if (to) { where.push("computed_deadline_date <= ?"); params.push(to); }
+  // Free-text search across the visible on-screen attributes.
+  if (q) {
+    where.push("(owner_name LIKE ? OR owner_email LIKE ? OR mark_text LIKE ? OR serial_number LIKE ? OR registration_number LIKE ?)");
+    const like = `%${q}%`;
+    params.push(like, like, like, like, like);
+  }
   return { clause: where.join(" AND "), params };
 }
 
 // Paginated leads. The COUNT is the expensive part on a 14M-row table, so it's
 // only run when withCount=true (filter changes) — page navigation reuses it.
-async function getLeads({ page = 1, pageSize = 25, from = null, to = null, withCount = true } = {}) {
+async function getLeads({ page = 1, pageSize = 25, from = null, to = null, q = null, withCount = true } = {}) {
   const ps = Math.min(Math.max(parseInt(pageSize, 10) || 25, 1), 200);
   const pg = Math.max(parseInt(page, 10) || 1, 1);
   const offset = (pg - 1) * ps;
-  const { clause, params } = leadsWhere({ from, to });
+  const { clause, params } = leadsWhere({ from, to, q });
 
   let total = null;
   if (withCount) {
@@ -164,6 +171,14 @@ async function getLeads({ page = 1, pageSize = 25, from = null, to = null, withC
     params
   );
   return { rows, total, page: pg, pageSize: ps };
+}
+
+// Just the total count (the slow part). Fetched on its own so the row list
+// never waits for it — see the leads controller/route.
+async function getLeadsCount({ from = null, to = null, q = null } = {}) {
+  const { clause, params } = leadsWhere({ from, to, q });
+  const [[cnt]] = await pool.query(`SELECT COUNT(*) AS total FROM trademark_leads WHERE ${clause}`, params);
+  return cnt.total;
 }
 
 // Rows for CSV export (bounded), with a CALLER-CHOSEN column set. Columns are
@@ -188,5 +203,6 @@ module.exports = {
   updateAfterTsdrVerify,
   getQualifiedLeads,
   getLeads,
+  getLeadsCount,
   getLeadsForExport,
 };

@@ -6,6 +6,7 @@ const {
   listRecent,
   listConversations,
   getConversation,
+  getConversationMessages,
   stats,
   getSettings,
   updateSettings,
@@ -21,6 +22,7 @@ const {
 router.get("/emails", listRecent);
 router.get("/conversations", listConversations);
 router.get("/conversations/:threadId", getConversation);
+router.get("/conversations/:threadId/messages", getConversationMessages);
 router.get("/stats", stats);
 router.get("/settings", getSettings);
 router.post("/settings", updateSettings);
