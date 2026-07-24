@@ -10,6 +10,7 @@ const route = useRoute()
 const router = useRouter()
 
 const loading = ref(true)
+const messagesLoading = ref(true)
 const error = ref('')
 const messages = ref([])
 const log = ref([])
@@ -50,12 +51,12 @@ function cleanReply(text = '') {
   return lines.slice(0, cut).join('\n').trim() || text.trim()
 }
 
+// Fast: tracking + log + links (DB, ~50ms). Renders the page immediately.
 async function load() {
   loading.value = true
   error.value = ''
   try {
     const r = await api.get(`/dashboard/conversations/${encodeURIComponent(route.params.threadId)}`)
-    messages.value = r.messages || []
     log.value = r.log || []
     tracking.value = r.tracking || []
     links.value = r.links || []
@@ -63,6 +64,22 @@ async function load() {
     error.value = e.message
   } finally {
     loading.value = false
+  }
+  loadMessages()
+}
+
+// Slow: the live Gmail thread (~1.5s). Fetched separately so the chat fills in
+// without blocking the rest of the page.
+async function loadMessages() {
+  messagesLoading.value = true
+  messages.value = []
+  try {
+    const r = await api.get(`/dashboard/conversations/${encodeURIComponent(route.params.threadId)}/messages`)
+    messages.value = r.messages || []
+  } catch (e) {
+    /* messages optional — leave empty on error */
+  } finally {
+    messagesLoading.value = false
   }
 }
 
@@ -89,7 +106,7 @@ watch(() => route.params.threadId, load) // reload when navigating to a differen
     <!-- Conversation -->
     <div class="card card-pad">
       <div class="section-label">Conversation</div>
-      <div v-if="loading" class="empty-state">Loading…</div>
+      <div v-if="messagesLoading" class="empty-state">Loading messages…</div>
       <div v-else-if="!messages.length" class="empty-state">
         No message content available for this thread.
       </div>

@@ -7,13 +7,12 @@ defineEmits(['close'])
 
 const route = useRoute()
 
-// Active when the path matches — and the Dashboard stays highlighted while
-// you're drilled into a conversation detail page (it's a child of Dashboard).
+// Active when the current path matches the nav item (or is a child of it, e.g.
+// /recipients/:email keeps "Recipient Activity" active). The conversation detail
+// page (/conversations/:id) matches nothing here, so no item is highlighted there.
 function isActive(to) {
   const p = route.path
-  if (p === to || p.startsWith(to + '/')) return true
-  if (to === '/dashboard' && p.startsWith('/conversations')) return true
-  return false
+  return p === to || p.startsWith(to + '/')
 }
 
 // Nav is data-driven so adding a page later = one line here.
